@@ -5,9 +5,15 @@ import { getAdminFromRequest } from '@/lib/auth';
 const GRAPH_API_VERSION = 'v20.0';
 const DEFAULT_APP_URL = 'https://buconfess-production.up.railway.app';
 
+/** Maximum time (ms) to wait for a container to finish processing. */
+const CONTAINER_POLL_TIMEOUT_MS = 90_000;
+/** Interval (ms) between container status checks. */
+const CONTAINER_POLL_INTERVAL_MS = 3_000;
+
 type GraphResponse = {
   id?: string;
   permalink?: string;
+  status_code?: string;
   error?: {
     message?: string;
     code?: number;
@@ -70,8 +76,9 @@ async function graphPost(
 }
 
 async function graphGet(path: string, accessToken: string) {
+  const separator = path.includes('?') ? '&' : '?';
   const response = await fetch(
-    `https://graph.facebook.com/${GRAPH_API_VERSION}/${path}${path.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(accessToken)}`,
+    `https://graph.facebook.com/${GRAPH_API_VERSION}/${path}${separator}access_token=${encodeURIComponent(accessToken)}`,
     { method: 'GET' }
   );
 
@@ -90,6 +97,37 @@ async function graphGet(path: string, accessToken: string) {
   return data;
 }
 
+/**
+ * Polls the container status until it reaches FINISHED or errors out.
+ * Instagram's container creation is asynchronous — you MUST wait for
+ * the container to finish processing before calling media_publish.
+ */
+async function waitForContainerReady(containerId: string, accessToken: string): Promise<void> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < CONTAINER_POLL_TIMEOUT_MS) {
+    const status = await graphGet(`${containerId}?fields=status_code`, accessToken);
+    const statusCode = status.status_code;
+
+    if (statusCode === 'FINISHED') {
+      return;
+    }
+
+    if (statusCode === 'ERROR') {
+      throw new Error(
+        `Instagram container ${containerId} failed processing. Check your image URL is publicly accessible.`
+      );
+    }
+
+    // IN_PROGRESS or other — wait and retry
+    await new Promise((resolve) => setTimeout(resolve, CONTAINER_POLL_INTERVAL_MS));
+  }
+
+  throw new Error(
+    `Instagram container ${containerId} did not finish processing within ${CONTAINER_POLL_TIMEOUT_MS / 1000}s timeout.`
+  );
+}
+
 export async function POST(req: NextRequest) {
   const isAdmin = await getAdminFromRequest();
   if (!isAdmin) {
@@ -100,7 +138,7 @@ export async function POST(req: NextRequest) {
   const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
   if (!igUserId || !accessToken) {
     return NextResponse.json(
-      { error: 'Instagram credentials not configured' },
+      { error: 'Instagram credentials not configured. Set INSTAGRAM_USER_ID and INSTAGRAM_ACCESS_TOKEN in your .env file.' },
       { status: 500 }
     );
   }
@@ -113,7 +151,7 @@ export async function POST(req: NextRequest) {
 
   if (confession.status !== 'approved') {
     return NextResponse.json(
-      { error: 'Only approved confessions can be posted to Instagram' },
+      { error: 'Only approved confessions can be posted to Instagram. Generate images first.' },
       { status: 400 }
     );
   }
@@ -127,6 +165,14 @@ export async function POST(req: NextRequest) {
   const caption = buildCaption(confession.number ?? null, process.env.IG_HANDLE || 'bu.confess');
 
   try {
+    // Validate that the base URL is not localhost (Instagram can't reach it)
+    if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+      throw new Error(
+        'NEXT_PUBLIC_APP_URL points to localhost. Instagram cannot fetch images from localhost. ' +
+        'Deploy your app or use a tunneling solution like ngrok, then set NEXT_PUBLIC_APP_URL to the public URL.'
+      );
+    }
+
     const creationIds: string[] = [];
 
     for (const imageUrl of imageUrls) {
@@ -142,6 +188,8 @@ export async function POST(req: NextRequest) {
         throw new Error('Instagram media container was created without an id');
       }
 
+      // Wait for the container to finish processing
+      await waitForContainerReady(container.id, accessToken);
       creationIds.push(container.id);
     }
 
@@ -161,6 +209,8 @@ export async function POST(req: NextRequest) {
         throw new Error('Instagram carousel container was created without an id');
       }
 
+      // Wait for carousel container to finish too
+      await waitForContainerReady(carouselContainer.id, accessToken);
       publishTargetId = carouselContainer.id;
     }
 
@@ -203,6 +253,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Unknown Instagram publish error';
+    console.error('Instagram posting failed:', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

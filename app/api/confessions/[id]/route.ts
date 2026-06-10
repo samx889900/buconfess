@@ -8,7 +8,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const numId = parseInt(id);
   const body = await req.json();
-  const confession = await prisma.confession.update({ where: { id: numId }, data: body });
+  // Only allow whitelisted fields to prevent arbitrary data injection
+  const allowed: Record<string, unknown> = {};
+  if (typeof body.status === 'string') allowed.status = body.status;
+  if (typeof body.text === 'string') allowed.text = body.text;
+  if (Object.keys(allowed).length === 0) {
+    return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
+  }
+  const confession = await prisma.confession.update({ where: { id: numId }, data: allowed });
   return NextResponse.json(confession);
 }
 

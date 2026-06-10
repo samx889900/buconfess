@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 type Confession = {
   id: number;
@@ -15,6 +15,7 @@ type Confession = {
 
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -24,16 +25,39 @@ export default function AdminPage() {
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [msg, setMsg] = useState('');
 
+  // Check if admin is already logged in (JWT cookie persists across refreshes)
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const res = await fetch('/api/admin/me');
+        if (res.ok) {
+          setLoggedIn(true);
+        }
+      } catch {
+        // Not logged in
+      }
+      setCheckingAuth(false);
+    };
+    checkAuth();
+  }, []);
+
+  const fetchConfessions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/confessions?status=' + statusFilter);
+      if (res.ok) setConfessions(await res.json());
+      else if (res.status === 401) {
+        setLoggedIn(false);
+      }
+    } catch {
+      // Network error
+    }
+    setLoading(false);
+  }, [statusFilter]);
+
   useEffect(() => {
     if (loggedIn) fetchConfessions();
-  }, [loggedIn, statusFilter]);
-
-  const fetchConfessions = async () => {
-    setLoading(true);
-    const res = await fetch('/api/confessions?status=' + statusFilter);
-    if (res.ok) setConfessions(await res.json());
-    setLoading(false);
-  };
+  }, [loggedIn, fetchConfessions]);
 
   const login = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,35 +73,44 @@ export default function AdminPage() {
   const logout = async () => {
     await fetch('/api/admin/logout', { method: 'POST' });
     setLoggedIn(false);
+    setConfessions([]);
   };
 
   const generateImages = async (id: number) => {
     setActionLoading(id); setMsg('');
-    const res = await fetch('/api/generate-images', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    const data = await res.json();
-    if (res.ok) { setMsg('Images generated for #' + data.confessionNumber); fetchConfessions(); }
-    else setMsg('Error: ' + data.error);
+    try {
+      const res = await fetch('/api/generate-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (res.ok) { setMsg('✅ Images generated for #' + data.confessionNumber); fetchConfessions(); }
+      else setMsg('Error: ' + data.error);
+    } catch {
+      setMsg('Error: Network error while generating images');
+    }
     setActionLoading(null);
   };
 
   const postToInstagram = async (id: number) => {
     setActionLoading(id); setMsg('');
-    const res = await fetch('/api/post-to-instagram', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      const permalink = data.igPermalink ? ` Permalink: ${data.igPermalink}` : '';
-      setMsg(`Posted to Instagram! Post ID: ${data.igPostId}.${permalink}`);
-      fetchConfessions();
+    try {
+      const res = await fetch('/api/post-to-instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const permalink = data.igPermalink ? ` — ${data.igPermalink}` : '';
+        setMsg(`✅ Posted to Instagram! Post ID: ${data.igPostId}${permalink}`);
+        fetchConfessions();
+      }
+      else setMsg('Error: ' + data.error);
+    } catch {
+      setMsg('Error: Network error while posting to Instagram');
     }
-    else setMsg('Error: ' + data.error);
     setActionLoading(null);
   };
 
@@ -89,6 +122,18 @@ export default function AdminPage() {
     setActionLoading(null);
   };
 
+  const downloadImages = (c: Confession) => {
+    const urls: string[] = JSON.parse(c.imageUrls || '[]');
+    urls.forEach((url: string, i: number) => {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `confession-${c.number || c.id}-part-${i + 1}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+  };
+
   const s: Record<string, any> = {
     page: { minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: 'Inter,sans-serif' },
     nav: { background: '#111', borderBottom: '1px solid #222', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
@@ -96,8 +141,20 @@ export default function AdminPage() {
     main: { maxWidth: '1100px', margin: '0 auto', padding: '24px' },
     card: { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '12px', padding: '20px', marginBottom: '16px' },
     badge: (st: string) => ({ display: 'inline-block', padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', background: st === 'posted' ? '#16a34a22' : st === 'approved' ? '#d97706' + '22' : '#6366f122', color: st === 'posted' ? '#4ade80' : st === 'approved' ? '#fbbf24' : '#818cf8' }),
-    btn: (col: string, dis = false) => ({ background: dis ? '#333' : col, color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', cursor: dis ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: '600', opacity: dis ? 0.6 : 1 }),
+    btn: (col: string, dis = false) => ({ background: dis ? '#333' : col, color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 16px', cursor: dis ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: '600', opacity: dis ? 0.6 : 1, transition: 'opacity 0.2s' }),
   };
+
+  // Show loading spinner while checking auth
+  if (checkingAuth) {
+    return (
+      <div style={{ ...s.page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '32px', marginBottom: '12px', animation: 'spin 1s linear infinite' }}>⏳</div>
+          <p style={{ color: '#666' }}>Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!loggedIn) {
     return (
@@ -128,7 +185,7 @@ export default function AdminPage() {
         <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
           {['pending', 'approved', 'posted'].map(st => (
             <button key={st} onClick={() => setStatusFilter(st)}
-              style={{ background: statusFilter === st ? '#6366f1' : '#1a1a1a', color: statusFilter === st ? '#fff' : '#aaa', border: '1px solid ' + (statusFilter === st ? '#6366f1' : '#333'), borderRadius: '8px', padding: '8px 20px', cursor: 'pointer', fontWeight: '600', textTransform: 'capitalize' }}>
+              style={{ background: statusFilter === st ? '#6366f1' : '#1a1a1a', color: statusFilter === st ? '#fff' : '#aaa', border: '1px solid ' + (statusFilter === st ? '#6366f1' : '#333'), borderRadius: '8px', padding: '8px 20px', cursor: 'pointer', fontWeight: '600', textTransform: 'capitalize' as const }}>
               {st}
             </button>
           ))}
@@ -141,17 +198,17 @@ export default function AdminPage() {
             return (
               <div key={c.id} style={s.card}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ color: '#666', fontSize: '13px' }}>#{c.number || c.id}</span>
                     <span style={s.badge(c.status)}>{c.status}</span>
                     {c.igPostId && <span style={{ color: '#4ade80', fontSize: '11px' }}>IG: {c.igPostId}</span>}
                     {c.igPermalink && (
                       <a href={c.igPermalink} target="_blank" rel="noreferrer" style={{ color: '#93c5fd', fontSize: '11px' }}>
-                        View post
+                        View post ↗
                       </a>
                     )}
                   </div>
-                  <span style={{ color: '#555', fontSize: '12px' }}>{new Date(c.createdAt).toLocaleString('en-IN')}</span>
+                  <span style={{ color: '#555', fontSize: '12px', whiteSpace: 'nowrap' }}>{new Date(c.createdAt).toLocaleString('en-IN')}</span>
                 </div>
                 <p style={{ color: '#ddd', lineHeight: '1.6', marginBottom: '16px', fontSize: '15px', whiteSpace: 'pre-wrap' }}>{c.text}</p>
                 {images.length > 0 && (
@@ -164,34 +221,25 @@ export default function AdminPage() {
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {c.status === 'pending' && (
                     <button onClick={() => generateImages(c.id)} disabled={isLoading} style={s.btn('#6366f1', isLoading)}>
-                      {isLoading ? 'Generating...' : 'Generate Images'}
+                      {isLoading ? 'Generating...' : '✅ Approve & Generate Images'}
                     </button>
                   )}
                   {c.status === 'approved' && (
                     <button onClick={() => postToInstagram(c.id)} disabled={isLoading} style={s.btn('#16a34a', isLoading)}>
-                      {isLoading ? 'Posting...' : 'Post to Instagram'}
+                      {isLoading ? 'Posting...' : '📸 Post to Instagram'}
                     </button>
                   )}
                   {c.status === 'approved' && (
                     <button onClick={() => generateImages(c.id)} disabled={isLoading} style={s.btn('#d97706', isLoading)}>
-                      Regenerate Images
+                      🔄 Regenerate Images
                     </button>
                   )}
-                  <button
-                    onClick={() => {
-                      const urls = JSON.parse(c.imageUrls || '[]');
-                      urls.forEach((url: string, i: number) => {
-                        const link = document.createElement('a');
-                        link.href = url;
-                        link.download = `confession-${c.number}-part-${i + 1}.jpg`;
-                        link.click();
-                      });
-                    }}
-                    className="bg-blue-500 hover:bg-blue-600 text-white py-1 px-3 rounded"
-                  >
-                    Download All
-                  </button>
-                  <button onClick={() => deleteConfession(c.id)} disabled={isLoading} style={s.btn('#7f1d1d', isLoading)}>Delete</button>
+                  {images.length > 0 && (
+                    <button onClick={() => downloadImages(c)} style={s.btn('#3b82f6', false)}>
+                      ⬇ Download All
+                    </button>
+                  )}
+                  <button onClick={() => deleteConfession(c.id)} disabled={isLoading} style={s.btn('#7f1d1d', isLoading)}>🗑 Delete</button>
                 </div>
               </div>
             );

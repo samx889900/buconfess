@@ -16,7 +16,7 @@ export function splitTextIntoParts(text: string): string[] {
       break;
     }
     let splitAt = remaining.lastIndexOf(' ', MAX_CHARS_PER_IMAGE);
-    if (splitAt === 0) splitAt = MAX_CHARS_PER_IMAGE;
+    if (splitAt <= 0) splitAt = MAX_CHARS_PER_IMAGE;
     parts.push(remaining.slice(0, splitAt).trim());
     remaining = remaining.slice(splitAt).trim();
   }
@@ -119,5 +119,5 @@ export async function generateConfessionImage(
   ctx.fillStyle = accentGrad;
   ctx.fillRect(PADDING, CANVAS_SIZE - PADDING - 10, CANVAS_SIZE - PADDING * 2, 4);
 
-  return canvas.toBuffer('image/jpeg', 85) as unknown as Buffer;
+  return Buffer.from(canvas.toBuffer('image/jpeg'));
 }
