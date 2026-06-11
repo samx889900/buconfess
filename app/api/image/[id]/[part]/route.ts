@@ -1,26 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 import { generateConfessionImage, splitTextIntoParts } from '@/lib/imageGenerator';
+import { getGoogleSheet } from '@/lib/googleSheets';
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; part: string }> }
 ) {
   const { id: idStr, part: partStr } = await params;
-  const id = parseInt(idStr);
   const partIndex = parseInt(partStr);
 
-  const confession = await prisma.confession.findUnique({ where: { id } });
-  if (!confession) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const doc = await getGoogleSheet();
+  const sheet = doc.sheetsByIndex[0];
+  const rows = await sheet.getRows();
+  
+  const confessionRow = rows.find(row => row.get('id') === idStr);
+  if (!confessionRow) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const parts = confession.parts ? JSON.parse(confession.parts) : splitTextIntoParts(confession.text);
+  const partsStr = confessionRow.get('parts');
+  const text = confessionRow.get('text') || '';
+  const parts = partsStr ? JSON.parse(partsStr) : splitTextIntoParts(text);
+  
   if (partIndex < 0 || partIndex >= parts.length) {
     return NextResponse.json({ error: 'Part not found' }, { status: 404 });
   }
 
+  const number = confessionRow.get('number') ? parseInt(confessionRow.get('number')) : parseInt(idStr);
+
   const buffer = await generateConfessionImage(
     parts[partIndex],
-    confession.number || id,
+    number,
     partIndex,
     parts.length
   );

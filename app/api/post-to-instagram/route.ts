@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
 import { getAdminFromRequest } from '@/lib/auth';
+import { getGoogleSheet } from '@/lib/googleSheets';
 
 const GRAPH_API_VERSION = 'v20.0';
 const DEFAULT_APP_URL = 'https://buconfess-production.up.railway.app';
@@ -36,13 +36,13 @@ function toAbsoluteUrl(baseUrl: string, value: string) {
     return value;
   }
 
-  return `${baseUrl}${value.startsWith('/') ? value : `/${value}`}`;
+  return `${baseUrl}${value.startsWith('/') ? value : \`/\${value}\`}`;
 }
 
 function buildCaption(confessionNumber: number | null, handle: string) {
   const prefix = (process.env.IG_CAPTION_PREFIX || 'BU Confession').trim();
   return [
-    `${prefix} #${confessionNumber ?? 'Draft'}`,
+    `\${prefix} #\${confessionNumber ?? 'Draft'}`,
     'DM or visit the link in bio to submit yours!',
     normalizeHandle(handle),
   ].join('\n\n');
@@ -53,7 +53,7 @@ async function graphPost(
   body: Record<string, unknown>,
   accessToken: string
 ) {
-  const response = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${path}`, {
+  const response = await fetch(`https://graph.facebook.com/\${GRAPH_API_VERSION}/\${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...body, access_token: accessToken }),
@@ -68,7 +68,7 @@ async function graphPost(
       body,
     });
     throw new Error(
-      data.error?.message || `Graph API request failed with status ${response.status}`
+      data.error?.message || `Graph API request failed with status \${response.status}`
     );
   }
 
@@ -78,7 +78,7 @@ async function graphPost(
 async function graphGet(path: string, accessToken: string) {
   const separator = path.includes('?') ? '&' : '?';
   const response = await fetch(
-    `https://graph.facebook.com/${GRAPH_API_VERSION}/${path}${separator}access_token=${encodeURIComponent(accessToken)}`,
+    `https://graph.facebook.com/\${GRAPH_API_VERSION}/\${path}\${separator}access_token=\${encodeURIComponent(accessToken)}`,
     { method: 'GET' }
   );
 
@@ -90,7 +90,7 @@ async function graphGet(path: string, accessToken: string) {
       error: data.error ?? data,
     });
     throw new Error(
-      data.error?.message || `Graph API request failed with status ${response.status}`
+      data.error?.message || `Graph API request failed with status \${response.status}`
     );
   }
 
@@ -106,7 +106,7 @@ async function waitForContainerReady(containerId: string, accessToken: string): 
   const startTime = Date.now();
 
   while (Date.now() - startTime < CONTAINER_POLL_TIMEOUT_MS) {
-    const status = await graphGet(`${containerId}?fields=status_code`, accessToken);
+    const status = await graphGet(`\${containerId}?fields=status_code`, accessToken);
     const statusCode = status.status_code;
 
     if (statusCode === 'FINISHED') {
@@ -115,7 +115,7 @@ async function waitForContainerReady(containerId: string, accessToken: string): 
 
     if (statusCode === 'ERROR') {
       throw new Error(
-        `Instagram container ${containerId} failed processing. Check your image URL is publicly accessible.`
+        `Instagram container \${containerId} failed processing. Check your image URL is publicly accessible.`
       );
     }
 
@@ -124,7 +124,7 @@ async function waitForContainerReady(containerId: string, accessToken: string): 
   }
 
   throw new Error(
-    `Instagram container ${containerId} did not finish processing within ${CONTAINER_POLL_TIMEOUT_MS / 1000}s timeout.`
+    `Instagram container \${containerId} did not finish processing within \${CONTAINER_POLL_TIMEOUT_MS / 1000}s timeout.`
   );
 }
 
@@ -144,12 +144,18 @@ export async function POST(req: NextRequest) {
   }
 
   const { id } = await req.json();
-  const confession = await prisma.confession.findUnique({ where: { id } });
-  if (!confession) {
+  
+  const doc = await getGoogleSheet();
+  const sheet = doc.sheetsByIndex[0];
+  const rows = await sheet.getRows();
+  
+  const confessionRow = rows.find(row => row.get('id') === id.toString() || row.get('id') === id);
+  if (!confessionRow) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  if (confession.status !== 'approved') {
+  const status = confessionRow.get('status');
+  if (status !== 'approved') {
     return NextResponse.json(
       { error: 'Only approved confessions can be posted to Instagram. Generate images first.' },
       { status: 400 }
@@ -157,12 +163,15 @@ export async function POST(req: NextRequest) {
   }
 
   const baseUrl = getBaseUrl();
-  const storedImageUrls: string[] = confession.imageUrls ? JSON.parse(confession.imageUrls) : [];
+  const imageUrlsStr = confessionRow.get('imageUrls');
+  const storedImageUrls: string[] = imageUrlsStr ? JSON.parse(imageUrlsStr) : [];
   const imageUrls =
     storedImageUrls.length > 0
       ? storedImageUrls.map((value) => toAbsoluteUrl(baseUrl, value))
-      : [`${baseUrl}/api/image/${id}/0`];
-  const caption = buildCaption(confession.number ?? null, process.env.IG_HANDLE || 'bu.confess');
+      : [`\${baseUrl}/api/image/\${id}/0`];
+  
+  const confNumber = confessionRow.get('number') ? parseInt(confessionRow.get('number')) : null;
+  const caption = buildCaption(confNumber, process.env.IG_HANDLE || 'bu.confess');
 
   try {
     // Validate that the base URL is not localhost (Instagram can't reach it)
@@ -177,7 +186,7 @@ export async function POST(req: NextRequest) {
 
     for (const imageUrl of imageUrls) {
       const container = await graphPost(
-        `${igUserId}/media`,
+        `\${igUserId}/media`,
         imageUrls.length > 1
           ? { image_url: imageUrl, is_carousel_item: true }
           : { image_url: imageUrl, caption },
@@ -196,7 +205,7 @@ export async function POST(req: NextRequest) {
     let publishTargetId = creationIds[0];
     if (creationIds.length > 1) {
       const carouselContainer = await graphPost(
-        `${igUserId}/media`,
+        `\${igUserId}/media`,
         {
           media_type: 'CAROUSEL',
           children: creationIds,
@@ -215,7 +224,7 @@ export async function POST(req: NextRequest) {
     }
 
     const published = await graphPost(
-      `${igUserId}/media_publish`,
+      `\${igUserId}/media_publish`,
       { creation_id: publishTargetId },
       accessToken
     );
@@ -226,7 +235,7 @@ export async function POST(req: NextRequest) {
 
     let permalink: string | null = null;
     try {
-      const mediaDetails = await graphGet(`${published.id}?fields=id,permalink`, accessToken);
+      const mediaDetails = await graphGet(`\${published.id}?fields=id,permalink`, accessToken);
       permalink = mediaDetails.permalink || null;
     } catch (error) {
       console.error('Failed to fetch Instagram permalink', {
@@ -235,14 +244,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    await prisma.confession.update({
-      where: { id },
-      data: {
-        status: 'posted',
-        igPostId: published.id,
-        igPermalink: permalink,
-      },
-    });
+    confessionRow.set('status', 'posted');
+    confessionRow.set('igPostId', published.id);
+    confessionRow.set('igPermalink', permalink || '');
+    confessionRow.set('updatedAt', new Date().toISOString());
+    await confessionRow.save();
 
     return NextResponse.json({
       success: true,

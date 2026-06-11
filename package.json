@@ -5,19 +5,17 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "postinstall": "prisma generate"
+    "start": "next start"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.96",
-    "@prisma/client": "^5.13.0",
     "axios": "^1.6.8",
     "bcryptjs": "^2.4.3",
     "cookie": "^1.1.1",
     "form-data": "^4.0.0",
+    "google-spreadsheet": "^5.3.0",
     "jsonwebtoken": "^9.0.2",
     "next": "^16.1.6",
-    "prisma": "^5.13.0",
     "react": "^19",
     "react-dom": "^19"
   },
