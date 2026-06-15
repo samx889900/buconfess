@@ -159,7 +159,7 @@ export default function AdminPage() {
     urls.forEach((url: string, i: number) => {
       const link = document.createElement('a');
       link.href = url;
-      link.download = `confession-${c.number || c.id}-part-${i + 1}.jpg`;
+      link.download = `confession-${c.number || c.id}-part-${i + 1}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

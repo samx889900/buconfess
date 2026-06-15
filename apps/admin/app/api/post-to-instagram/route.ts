@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
     }
 
     const parts = splitTextIntoParts(confessionRow.get('text') || '');
-    const relativeUrls = parts.map((_, index) => `/api/image/${id}/${index}.jpg`);
+    const relativeUrls = parts.map((_, index) => `/api/image/${id}/${index}.png`);
     storedImageUrls = relativeUrls.map(value => toAbsoluteUrl(baseUrl, value));
 
     confessionRow.set('parts', JSON.stringify(parts));
@@ -205,7 +205,7 @@ export async function POST(req: NextRequest) {
     confNumber = confessionRow.get('number') ? parseInt(confessionRow.get('number')) : null;
   }
   
-  const imageUrls = storedImageUrls.length > 0 ? storedImageUrls : [`${baseUrl}/api/image/${id}/0.jpg`];
+  const imageUrls = storedImageUrls.length > 0 ? storedImageUrls : [`${baseUrl}/api/image/${id}/0.png`];
   const caption = buildCaption(confNumber, process.env.IG_HANDLE || 'bu.confess');
 
   try {

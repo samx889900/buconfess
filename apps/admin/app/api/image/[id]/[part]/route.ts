@@ -8,9 +8,8 @@ export async function GET(
 ) {
   const { id: idStr, part: partStr } = await params;
   let partStrClean = partStr;
-  if (partStrClean.endsWith('.jpg')) {
-    partStrClean = partStrClean.replace('.jpg', '');
-  }
+  if (partStrClean.endsWith('.jpg')) partStrClean = partStrClean.replace('.jpg', '');
+  if (partStrClean.endsWith('.png')) partStrClean = partStrClean.replace('.png', '');
   const partIndex = parseInt(partStrClean);
 
   const doc = await getGoogleSheet();
@@ -30,18 +29,10 @@ export async function GET(
 
   const number = confessionRow.get('number') ? parseInt(confessionRow.get('number')) : parseInt(idStr);
 
-  const buffer = await generateConfessionImage(
+  return generateConfessionImage(
     parts[partIndex],
     number,
     partIndex,
     parts.length
   );
-
-  return new NextResponse(new Uint8Array(buffer), {
-    status: 200,
-    headers: {
-      'Content-Type': 'image/jpeg',
-      'Cache-Control': 'public, max-age=31536000, immutable',
-    },
-  });
 }
