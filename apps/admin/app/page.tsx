@@ -192,7 +192,10 @@ export default function AdminPage() {
     return (
       <div style={{ ...s.page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ width: '360px', background: '#111', borderRadius: '16px', padding: '32px', border: '1px solid #222' }}>
-          <h1 style={{ textAlign: 'center', marginBottom: '24px', color: '#6366f1', fontSize: '22px', fontWeight: '800' }}>BU Confessions Admin</h1>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '24px', gap: '12px' }}>
+            <img src="/logo.png" alt="Logo" style={{ width: '32px', height: '32px', borderRadius: '8px', objectFit: 'cover' }} />
+            <h1 style={{ color: '#6366f1', fontSize: '22px', fontWeight: '800', margin: 0 }}>BU Confessions Admin</h1>
+          </div>
           <form onSubmit={login}>
             <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username"
               style={{ width: '100%', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', padding: '10px 12px', color: '#fff', marginBottom: '12px', fontSize: '15px' }} />
@@ -209,7 +212,10 @@ export default function AdminPage() {
   return (
     <div style={s.page}>
       <nav style={s.nav}>
-        <span style={s.logo}>BU Confessions Admin</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <img src="/logo.png" alt="Logo" style={{ width: '28px', height: '28px', borderRadius: '6px', objectFit: 'cover' }} />
+          <span style={s.logo}>BU Confessions Admin</span>
+        </div>
         <button onClick={logout} style={{ background: 'transparent', border: '1px solid #444', color: '#aaa', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer' }}>Logout</button>
       </nav>
       <div style={s.main}>

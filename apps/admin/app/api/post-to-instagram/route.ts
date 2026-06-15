@@ -61,9 +61,10 @@ function toAbsoluteUrl(baseUrl: string, value: string) {
 function buildCaption(confessionNumber: number | null, handle: string) {
   const prefix = (process.env.IG_CAPTION_PREFIX || 'BU Confession').trim();
   return [
-    `${prefix} #${confessionNumber ?? 'Draft'}`,
+    prefix,
     'DM or visit the link in bio to submit yours!',
     normalizeHandle(handle),
+    '#buconfess'
   ].join('\n\n');
 }
 

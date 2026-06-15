@@ -20,8 +20,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <header className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-5 px-4 enter-up">
           <nav className="glass rounded-2xl w-full max-w-3xl px-5 h-[52px] flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2.5 group">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#8B5CF6] to-[#6D28D9] flex items-center justify-center shadow-[0_0_20px_rgba(139,92,246,0.4)] group-hover:shadow-[0_0_30px_rgba(139,92,246,0.6)] transition-shadow">
-                <span className="text-[10px] font-bold text-white">BU</span>
+              <div className="w-7 h-7 rounded-lg shadow-[0_0_20px_rgba(139,92,246,0.4)] group-hover:shadow-[0_0_30px_rgba(139,92,246,0.6)] transition-shadow overflow-hidden flex items-center justify-center">
+                <img src="/logo.png" alt="BU Confessions Logo" className="w-full h-full object-cover" />
               </div>
               <span className="font-semibold text-[13px] text-gray-800 tracking-tight hidden sm:block group-hover:text-black transition-colors">
                 BU Confessions
