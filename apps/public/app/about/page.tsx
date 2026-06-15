@@ -25,7 +25,7 @@ export default function About() {
             About <span className="text-grad">BU Confessions</span>
           </h1>
           <p className="text-base md:text-lg text-gray-600 max-w-2xl mx-auto leading-relaxed">
-            Welcome to BU Confessions — a student-driven platform created for the Bennett University community.
+            Welcome to BU Confessions a student-driven platform created for the Bennett University community.
           </p>
         </motion.div>
 
