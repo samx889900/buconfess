@@ -7,7 +7,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string; part: string }> }
 ) {
   const { id: idStr, part: partStr } = await params;
-  const partIndex = parseInt(partStr);
+  let partStrClean = partStr;
+  if (partStrClean.endsWith('.jpg')) {
+    partStrClean = partStrClean.replace('.jpg', '');
+  }
+  const partIndex = parseInt(partStrClean);
 
   const doc = await getGoogleSheet();
   const sheet = doc.sheetsByIndex[0];
