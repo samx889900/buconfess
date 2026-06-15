@@ -28,8 +28,14 @@ function normalizeHandle(handle: string) {
   return handle.startsWith('@') ? handle : `@${handle}`;
 }
 
-function getBaseUrl() {
-  return (process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL).replace(/\/$/, '');
+function getBaseUrl(req: NextRequest) {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
+  const host = req.headers.get('host');
+  if (host) {
+    const protocol = host.includes('localhost') ? 'http' : 'https';
+    return `${protocol}://${host}`;
+  }
+  return DEFAULT_APP_URL;
 }
 
 function toAbsoluteUrl(baseUrl: string, value: string) {
@@ -163,7 +169,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const baseUrl = getBaseUrl();
+  const baseUrl = getBaseUrl(req);
   let storedImageUrls: string[] = [];
   let confNumber: number | null = null;
 
