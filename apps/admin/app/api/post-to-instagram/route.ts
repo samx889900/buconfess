@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFromRequest } from '@/lib/auth';
 import { getGoogleSheet } from '@/lib/googleSheets';
-import { splitTextIntoParts } from '@/lib/imageGenerator';
+import { generateConfessionImage, splitTextIntoParts } from '@/lib/imageGenerator';
 
 const GRAPH_API_VERSION = 'v20.0';
 const DEFAULT_APP_URL = 'https://buconfess-production.up.railway.app';
@@ -217,24 +217,43 @@ export async function POST(req: NextRequest) {
     confNumber = confessionRow.get('number') ? parseInt(confessionRow.get('number')) : null;
   }
   
-  const imageUrls = storedImageUrls.length > 0 ? storedImageUrls : [`${baseUrl}/api/image/${id}/0.png`];
+  if (!process.env.IMGBB_API_KEY) {
+    return NextResponse.json({ error: 'IMGBB_API_KEY is not set. Cannot upload to ImgBB.' }, { status: 500 });
+  }
+
+  // Generate buffers and upload to ImgBB to get 100% public URLs for Instagram
+  const finalImageUrls: string[] = [];
+  const parts = splitTextIntoParts(confessionRow.get('text') || '');
+  for (let i = 0; i < parts.length; i++) {
+    const imageRes = await generateConfessionImage(parts[i], confNumber || 0, i, parts.length);
+    const arrayBuffer = await imageRes.arrayBuffer();
+    const base64Image = Buffer.from(arrayBuffer).toString('base64');
+
+    const formData = new URLSearchParams();
+    formData.append('image', base64Image);
+
+    const imgbbRes = await fetch(`https://api.imgbb.com/1/upload?key=${process.env.IMGBB_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString()
+    });
+
+    const imgbbData = await imgbbRes.json();
+    if (!imgbbData.success) {
+      return NextResponse.json({ error: 'ImgBB Upload Failed: ' + imgbbData.error?.message }, { status: 500 });
+    }
+    finalImageUrls.push(imgbbData.data.url);
+  }
+
   const caption = buildCaption(confNumber, process.env.IG_HANDLE || 'bu.confess');
 
   try {
-    // Validate that the base URL is not localhost (Instagram can't reach it)
-    if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
-      throw new Error(
-        'NEXT_PUBLIC_APP_URL points to localhost. Instagram cannot fetch images from localhost. ' +
-        'Deploy your app or use a tunneling solution like ngrok, then set NEXT_PUBLIC_APP_URL to the public URL.'
-      );
-    }
-
     const creationIds: string[] = [];
 
-    for (const imageUrl of imageUrls) {
+    for (const imageUrl of finalImageUrls) {
       const container = await graphPost(
         `${igUserId}/media`,
-        imageUrls.length > 1
+        finalImageUrls.length > 1
           ? { image_url: imageUrl, is_carousel_item: true }
           : { image_url: imageUrl, caption },
         accessToken
