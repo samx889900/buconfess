@@ -24,6 +24,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [msg, setMsg] = useState('');
+  const [previewConfession, setPreviewConfession] = useState<Confession | null>(null);
 
   // Check if admin is already logged in (JWT cookie persists across refreshes)
   useEffect(() => {
@@ -74,6 +75,37 @@ export default function AdminPage() {
     await fetch('/api/admin/logout', { method: 'POST' });
     setLoggedIn(false);
     setConfessions([]);
+  };
+
+  const approveAndPreview = async (c: Confession) => {
+    setActionLoading(c.id); setMsg('');
+    try {
+      const res = await fetch('/api/generate-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: c.id }),
+      });
+      const data = await res.json();
+      if (res.ok) { 
+        setMsg('✅ Images generated for #' + data.confessionNumber); 
+        setPreviewConfession({
+          ...c,
+          status: 'approved',
+          number: data.confessionNumber,
+          imageUrls: JSON.stringify(data.imageUrls)
+        });
+        fetchConfessions(); 
+      }
+      else setMsg('Error: ' + data.error);
+    } catch {
+      setMsg('Error: Network error while generating images');
+    }
+    setActionLoading(null);
+  };
+
+  const handleModalPost = async (id: number) => {
+    await postToInstagram(id);
+    setPreviewConfession(null);
   };
 
   const generateImages = async (id: number) => {
@@ -220,13 +252,13 @@ export default function AdminPage() {
                 )}
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {c.status === 'pending' && (
-                    <button onClick={() => postToInstagram(c.id)} disabled={isLoading} style={s.btn('#6366f1', isLoading)}>
-                      {isLoading ? 'Processing...' : '🚀 Approve & Post to Instagram'}
+                    <button onClick={() => approveAndPreview(c)} disabled={isLoading} style={s.btn('#6366f1', isLoading)}>
+                      {isLoading ? 'Processing...' : '🚀 Approve & Generate Images'}
                     </button>
                   )}
                   {c.status === 'approved' && (
-                    <button onClick={() => postToInstagram(c.id)} disabled={isLoading} style={s.btn('#16a34a', isLoading)}>
-                      {isLoading ? 'Posting...' : '📸 Post to Instagram'}
+                    <button onClick={() => setPreviewConfession(c)} disabled={isLoading} style={s.btn('#16a34a', isLoading)}>
+                      {isLoading ? 'Loading...' : '📸 Preview & Post to Instagram'}
                     </button>
                   )}
                   {c.status === 'approved' && (
@@ -246,6 +278,31 @@ export default function AdminPage() {
           })
         )}
       </div>
+
+      {/* Image Preview Modal */}
+      {previewConfession && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+          <div style={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: '16px', padding: '24px', maxWidth: '800px', width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '20px', fontWeight: 'bold' }}>Confession #{previewConfession.number || previewConfession.id} Preview</h2>
+              <button onClick={() => setPreviewConfession(null)} style={{ background: 'transparent', border: 'none', color: '#aaa', fontSize: '28px', cursor: 'pointer', lineHeight: '1' }}>&times;</button>
+            </div>
+            
+            <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', overflowX: 'auto', paddingBottom: '12px' }}>
+              {JSON.parse(previewConfession.imageUrls || '[]').map((url: string, i: number) => (
+                <img key={i} src={url} alt={'Part ' + (i + 1)} style={{ width: '320px', height: '320px', borderRadius: '12px', objectFit: 'cover', border: '1px solid #444', flexShrink: 0 }} />
+              ))}
+            </div>
+            
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setPreviewConfession(null)} disabled={actionLoading === previewConfession.id} style={s.btn('#333', actionLoading === previewConfession.id)}>Cancel</button>
+              <button onClick={() => handleModalPost(previewConfession.id)} disabled={actionLoading === previewConfession.id} style={s.btn('#6366f1', actionLoading === previewConfession.id)}>
+                {actionLoading === previewConfession.id ? 'Posting...' : '🚀 Post to Instagram'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
