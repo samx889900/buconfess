@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGoogleSheet } from '@/lib/googleSheets';
+import { rateLimit } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
@@ -7,6 +8,17 @@ export async function POST(req: NextRequest) {
     if (!text || typeof text !== 'string') return NextResponse.json({ error: 'Text is required' }, { status: 400 });
     if (text.trim().length < 10) return NextResponse.json({ error: 'Confession too short' }, { status: 400 });
     if (text.length > 2000) return NextResponse.json({ error: 'Confession too long' }, { status: 400 });
+
+    const ip = req.headers.get('x-forwarded-for') || req.ip || '127.0.0.1';
+
+    // Rate Limiting
+    const { success } = await rateLimit.limit(ip);
+    if (!success) {
+      return NextResponse.json(
+        { error: 'You have reached the limit of 3 confessions per hour. Please try again later.' },
+        { status: 429 }
+      );
+    }
     
     const doc = await getGoogleSheet();
     const sheet = doc.sheetsByIndex[0];
@@ -19,6 +31,7 @@ export async function POST(req: NextRequest) {
       id: newId.toString(),
       text: text.trim(),
       status: 'pending',
+      ipAddress: ip,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
