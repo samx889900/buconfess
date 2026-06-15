@@ -14,11 +14,11 @@ export default function Developer() {
     { label: 'Deploy', value: 'Vercel Edge', icon: '🌐', color: '#00E5FF' },
   ];
 
-  const container = {
+  const container: any = {
     hidden: { opacity: 0 },
     show: { opacity: 1, transition: { staggerChildren: 0.06, delayChildren: 0.3 } },
   };
-  const item = {
+  const item: any = {
     hidden: { opacity: 0, y: 20, filter: 'blur(8px)' },
     show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.5 } },
   };
