@@ -30,12 +30,24 @@ function normalizeHandle(handle: string) {
 
 function getBaseUrl(req: NextRequest) {
   if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
+  
+  // Use Vercel production URL if available
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
+  
   const host = req.headers.get('host');
+  // If we are on localhost, Instagram won't be able to fetch the image.
+  // Force it to use the production Vercel deployment domain.
+  if (host && host.includes('localhost')) {
+    return 'https://buconfess-admin.vercel.app';
+  }
+  
   if (host) {
     const protocol = host.includes('localhost') ? 'http' : 'https';
     return `${protocol}://${host}`;
   }
-  return DEFAULT_APP_URL;
+  return 'https://buconfess-admin.vercel.app';
 }
 
 function toAbsoluteUrl(baseUrl: string, value: string) {
