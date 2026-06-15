@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const inter = Inter({ subsets: ["latin"], weight: ["300", "400", "500", "600", "700", "800"] });
 
@@ -78,6 +79,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <p className="text-center text-[9px] text-gray-400 mt-6 tracking-wider">ZERO TRACKING · END-TO-END ENCRYPTED · 100% ANONYMOUS</p>
         </footer>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
