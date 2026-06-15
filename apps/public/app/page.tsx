@@ -63,13 +63,13 @@ export default function Home() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2">Confession Sent</h2>
-            <p className="text-sm text-white/40 leading-relaxed mb-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Confession Sent</h2>
+            <p className="text-sm text-gray-600 leading-relaxed mb-8">
               Your secret is encrypted and queued for review. Watch the Instagram page.
             </p>
             <button
               onClick={() => { setText(''); setSubmitted(false); }}
-              className="btn-ghost w-full py-3 px-6 text-sm font-medium text-[#A78BFA] cursor-pointer"
+              className="w-full py-3 px-6 text-sm font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors cursor-pointer"
             >
               Submit Another
             </button>
