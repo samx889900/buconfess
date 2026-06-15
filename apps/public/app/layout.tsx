@@ -10,6 +10,10 @@ const inter = Inter({ subsets: ["latin"], weight: ["300", "400", "500", "600", "
 export const metadata: Metadata = {
   title: "BU Confessions | Speak Freely. Stay Anonymous.",
   description: "An immersive, 3D anonymous confession platform for Bennett University students.",
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
