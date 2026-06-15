@@ -1,6 +1,6 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { motion, Variants } from 'framer-motion';
 
 export default function About() {
   const features = [
@@ -33,13 +33,13 @@ export default function About() {
     },
   ];
 
-  const container: any = {
+  const container: Variants = {
     hidden: { opacity: 0 },
     show: { opacity: 1, transition: { staggerChildren: 0.1, delayChildren: 0.2 } },
   };
-  const item: any = {
+  const item: Variants = {
     hidden: { opacity: 0, y: 30, filter: 'blur(10px)' },
-    show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.6, ease: [0.22,1,0.36,1] } },
+    show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.6, ease: "easeOut" } },
   };
 
   return (
