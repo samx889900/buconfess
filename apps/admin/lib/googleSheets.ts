@@ -1,4 +1,5 @@
 import { GoogleSpreadsheet } from 'google-spreadsheet';
+import { JWT } from 'google-auth-library';
 
 // Initialize the sheet
 let doc: GoogleSpreadsheet | null = null;
@@ -13,10 +14,13 @@ export async function getGoogleSheet() {
   // Handle newlines in private key securely
   const privateKey = process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
 
-  doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, {
-    client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    private_key: privateKey,
+  const auth = new JWT({
+    email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    key: privateKey,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
+
+  doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, auth);
 
   await doc.loadInfo(); // loads document properties and worksheets
   return doc;

@@ -220,8 +220,8 @@ export default function AdminPage() {
                 )}
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   {c.status === 'pending' && (
-                    <button onClick={() => generateImages(c.id)} disabled={isLoading} style={s.btn('#6366f1', isLoading)}>
-                      {isLoading ? 'Generating...' : '✅ Approve & Generate Images'}
+                    <button onClick={() => postToInstagram(c.id)} disabled={isLoading} style={s.btn('#6366f1', isLoading)}>
+                      {isLoading ? 'Processing...' : '🚀 Approve & Post to Instagram'}
                     </button>
                   )}
                   {c.status === 'approved' && (

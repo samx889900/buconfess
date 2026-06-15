@@ -2,9 +2,9 @@ import { createCanvas } from '@napi-rs/canvas';
 
 const CANVAS_SIZE = 1080;
 const PADDING = 80;
-const MAX_CHARS_PER_IMAGE = 450;
-const FONT_SIZE = 36;
-const LINE_HEIGHT = 52;
+const MAX_CHARS_PER_IMAGE = 585; // Increased by 30% (was 450)
+const FONT_SIZE = 34; // Slightly reduced to fit more text (was 36)
+const LINE_HEIGHT = 48; // Adjusted for new font size (was 52)
 
 export function splitTextIntoParts(text: string): string[] {
   if (text.length <= MAX_CHARS_PER_IMAGE) return [text];

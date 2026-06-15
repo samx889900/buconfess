@@ -1,0 +1,228 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════
+   BU CONFESSIONS — Cinematic 3D Design System
+   Apple Vision Pro × Spline × Linear
+   ═══════════════════════════════════════════════ */
+
+:root {
+  --bg: #FAFAFA;
+  --purple: #8B5CF6;
+  --green: #10B981; /* adjusted green for light theme */
+  --cyan: #06B6D4;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: #111118;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: rgba(139, 92, 246, 0.35);
+  color: #fff;
+}
+
+/* ── Noise Texture ─────────────────────────── */
+.noise::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.018;
+  mix-blend-mode: overlay;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── Glassmorphism ─────────────────────────── */
+.glass {
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+}
+
+.glass-strong {
+  background: rgba(255,255,255,0.97);
+  backdrop-filter: blur(40px) saturate(160%);
+  -webkit-backdrop-filter: blur(40px) saturate(160%);
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.06);
+}
+
+/* ── Gradient Button ───────────────────────── */
+.btn-glow {
+  position: relative;
+  background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.3), 0 4px 20px rgba(0,0,0,0.5);
+  border: none;
+  border-radius: 14px;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+.btn-glow:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 0 60px rgba(139, 92, 246, 0.45), 0 8px 40px rgba(0,0,0,0.5);
+}
+.btn-glow:active { transform: translateY(0) scale(0.98); }
+
+.btn-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.12) 50%, transparent 60%);
+  transform: translateX(-100%);
+  transition: transform 0.6s ease;
+}
+.btn-glow:hover::after { transform: translateX(100%); }
+
+/* ── Ghost Button ──────────────────────────── */
+.btn-ghost {
+  background: rgba(139, 92, 246, 0.06);
+  border: 1px solid rgba(139, 92, 246, 0.15);
+  border-radius: 14px;
+  transition: all 0.3s ease;
+}
+.btn-ghost:hover {
+  background: rgba(139, 92, 246, 0.12);
+  border-color: rgba(139, 92, 246, 0.35);
+  transform: translateY(-2px);
+}
+
+/* ── Focus Glow for confession card ────────── */
+.confession-card {
+  transition: border-color 0.5s ease, box-shadow 0.5s ease;
+}
+.confession-card:focus-within {
+  border-color: rgba(139, 92, 246, 0.4) !important;
+  box-shadow: 0 0 80px rgba(139, 92, 246, 0.12), 0 0 30px rgba(139, 92, 246, 0.06);
+}
+
+/* ── Text Gradient ─────────────────────────── */
+.text-grad {
+  background: linear-gradient(135deg, #111118 0%, #7C3AED 70%, #10B981 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Textarea ──────────────────────────────── */
+textarea {
+  caret-color: #8B5CF6;
+}
+textarea::-webkit-scrollbar { width: 3px; }
+textarea::-webkit-scrollbar-track { background: transparent; }
+textarea::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.25); border-radius: 3px; }
+
+/* ── Floating animation ────────────────────── */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+.float { animation: float 6s ease-in-out infinite; }
+
+/* ── Aurora background ─────────────────────── */
+@keyframes aurora {
+  0%   { transform: translate(0, 0) rotate(0deg); }
+  33%  { transform: translate(30px, -50px) rotate(120deg); }
+  66%  { transform: translate(-20px, 20px) rotate(240deg); }
+  100% { transform: translate(0, 0) rotate(360deg); }
+}
+
+.aurora-1 {
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%);
+  border-radius: 50%; filter: blur(100px);
+  animation: aurora 25s ease-in-out infinite;
+}
+
+.aurora-2 {
+  width: 400px; height: 400px;
+  background: radial-gradient(circle, rgba(57,255,20,0.06) 0%, transparent 70%);
+  border-radius: 50%; filter: blur(100px);
+  animation: aurora 30s ease-in-out infinite reverse;
+}
+
+.aurora-3 {
+  width: 300px; height: 300px;
+  background: radial-gradient(circle, rgba(0,229,255,0.06) 0%, transparent 70%);
+  border-radius: 50%; filter: blur(80px);
+  animation: aurora 20s ease-in-out infinite 5s;
+}
+
+/* ── Grid pattern ──────────────────────────── */
+.grid-bg {
+  background-image:
+    linear-gradient(rgba(139,92,246,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(139,92,246,0.025) 1px, transparent 1px);
+  background-size: 80px 80px;
+}
+
+/* ── Nav link hover ────────────────────────── */
+.nav-link {
+  position: relative;
+  transition: color 0.25s ease;
+}
+.nav-link::after {
+  content: ''; position: absolute; bottom: -6px; left: 50%; width: 0; height: 2px;
+  background: #8B5CF6; border-radius: 1px;
+  transition: all 0.3s ease; transform: translateX(-50%);
+}
+.nav-link:hover::after { width: 100%; }
+
+/* ── Feature card hover ────────────────────── */
+.card-hover {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.card-hover:hover {
+  transform: translateY(-6px);
+  border-color: rgba(139,92,246,0.2);
+  box-shadow: 0 30px 80px rgba(0,0,0,0.4), 0 0 50px rgba(139,92,246,0.08);
+}
+
+/* ── Particle ──────────────────────────────── */
+@keyframes particleFloat {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 0.4; }
+  50% { transform: translateY(-30px) scale(1.5); opacity: 0.8; }
+}
+
+/* ── Staggered Entrance ────────────────────── */
+@keyframes enterUp {
+  from { opacity: 0; transform: translateY(40px); filter: blur(10px); }
+  to   { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+@keyframes enterFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes enterScale {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.enter-up      { animation: enterUp 0.8s cubic-bezier(0.22,1,0.36,1) forwards; }
+.enter-up-d1   { opacity:0; animation: enterUp 0.8s cubic-bezier(0.22,1,0.36,1) 0.1s forwards; }
+.enter-up-d2   { opacity:0; animation: enterUp 0.8s cubic-bezier(0.22,1,0.36,1) 0.2s forwards; }
+.enter-up-d3   { opacity:0; animation: enterUp 0.8s cubic-bezier(0.22,1,0.36,1) 0.35s forwards; }
+.enter-up-d4   { opacity:0; animation: enterUp 0.8s cubic-bezier(0.22,1,0.36,1) 0.5s forwards; }
+.enter-fade    { animation: enterFade 1s ease forwards; }
+.enter-scale   { animation: enterScale 0.8s cubic-bezier(0.22,1,0.36,1) forwards; }
+
+/* ── Accent Dot ────────────────────────────── */
+.dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #8B5CF6;
+  box-shadow: 0 0 10px rgba(139,92,246,0.7);
+}
+
+/* ── Divider ───────────────────────────────── */
+.divider-glow {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(139,92,246,0.25), transparent);
+}
