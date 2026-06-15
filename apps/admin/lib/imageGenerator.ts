@@ -1,4 +1,4 @@
-import { createCanvas } from '@napi-rs/canvas';
+// Dynamic import for @napi-rs/canvas to prevent Next.js build-time native binding errors
 
 const CANVAS_SIZE = 1080;
 const PADDING = 80;
@@ -47,6 +47,7 @@ export async function generateConfessionImage(
   partIndex: number,
   totalParts: number
 ): Promise<Buffer> {
+  const { createCanvas } = require('@napi-rs/canvas');
   const canvas = createCanvas(CANVAS_SIZE, CANVAS_SIZE);
   const ctx = canvas.getContext('2d');
 
