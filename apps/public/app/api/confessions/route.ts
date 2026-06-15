@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
     if (text.trim().length < 10) return NextResponse.json({ error: 'Confession too short' }, { status: 400 });
     if (text.length > 2000) return NextResponse.json({ error: 'Confession too long' }, { status: 400 });
 
-    const ip = req.headers.get('x-forwarded-for') || req.ip || '127.0.0.1';
+    const ip = req.headers.get('x-forwarded-for') || '127.0.0.1';
 
     // Rate Limiting
     const { success } = await rateLimit.limit(ip);
