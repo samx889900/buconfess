@@ -65,8 +65,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <div className="divider-glow max-w-md mx-auto mb-10" />
           <div className="max-w-3xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-2.5">
-              <div className="w-4 h-4 rounded bg-gradient-to-br from-[#8B5CF6] to-[#6D28D9] flex items-center justify-center">
-                <span className="text-[6px] font-bold text-white">BU</span>
+              <div className="w-5 h-5 rounded overflow-hidden flex items-center justify-center shadow-sm">
+                <img src="/logo.png" alt="BU Confessions Logo" className="w-full h-full object-cover" />
               </div>
               <span className="text-[11px] text-gray-500">© {new Date().getFullYear()} BU Confessions</span>
             </div>
