@@ -91,11 +91,16 @@ export default function Home() {
                 </span>
               </div>
 
-              <h1 className="text-4xl sm:text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.05] mb-5">
-                <span className="text-grad">Speak Freely.</span>
-                <br />
-                <span className="text-gray-900">Stay Anonymous.</span>
-              </h1>
+              <div className="relative inline-block mb-5">
+                {/* Black torch/glow background for readability */}
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[140%] h-[160%] bg-black/60 blur-[60px] rounded-full -z-10 pointer-events-none"></div>
+                
+                <h1 className="relative text-4xl sm:text-5xl md:text-7xl font-extrabold tracking-tight leading-[1.05] z-10 [text-shadow:_0_2px_15px_rgba(0,0,0,0.5)]">
+                  <span className="text-grad">Speak Freely.</span>
+                  <br />
+                  <span className="text-white">Stay Anonymous.</span>
+                </h1>
+              </div>
 
               <p className="text-sm md:text-base text-gray-800 max-w-md mx-auto leading-relaxed font-bold [-webkit-text-stroke:_1px_rgba(139,92,246,0.4)] [text-shadow:_0_0_15px_#A78BFA,_0_0_30px_#A78BFA,_0_0_40px_#A78BFA]">
                 Share your thoughts with the Bennett community without revealing your identity.
