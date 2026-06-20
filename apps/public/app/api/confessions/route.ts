@@ -31,7 +31,6 @@ export async function POST(req: NextRequest) {
       id: newId.toString(),
       text: text.trim(),
       status: 'pending',
-      ipAddress: ip,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
