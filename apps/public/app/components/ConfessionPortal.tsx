@@ -49,7 +49,7 @@ export default function ConfessionPortal({ text, setText, onSubmit, loading, err
           onMouseMove={handleMouseMove}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={handleMouseLeave}
-          className="confession-card bg-white rounded-[32px] p-8 md:p-10 relative overflow-hidden border border-gray-100 shadow-[0_8px_40px_rgba(0,0,0,0.06),0_2px_10px_rgba(139,92,246,0.05)]"
+          className="confession-card bg-white rounded-3xl p-7 md:p-9 relative overflow-hidden border border-gray-100 shadow-[0_8px_30px_rgba(0,0,0,0.04),0_2px_10px_rgba(139,92,246,0.03)]"
           style={{
             transform: `perspective(1000px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
           }}
@@ -70,7 +70,7 @@ export default function ConfessionPortal({ text, setText, onSubmit, loading, err
             placeholder="What's on your mind?..."
             maxLength={MAX}
             rows={7}
-            className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl p-6 text-gray-900 text-[15px] md:text-base resize-none outline-none placeholder:text-gray-400 leading-relaxed transition-all duration-400 ease-[cubic-bezier(0.22,1,0.36,1)] focus:border-purple-400 focus:shadow-[0_0_0_4px_rgba(139,92,246,0.1)] focus:bg-white relative z-10"
+            className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl p-5 md:p-6 text-gray-900 text-[15px] resize-none outline-none placeholder:text-gray-400 leading-relaxed transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus:border-purple-300 focus:shadow-[0_0_0_3px_rgba(139,92,246,0.08)] focus:bg-white relative z-10"
             autoFocus
           />
 
@@ -98,7 +98,7 @@ export default function ConfessionPortal({ text, setText, onSubmit, loading, err
             <button
               type="submit"
               disabled={loading || !text.trim()}
-              className={`py-3 px-8 text-sm font-bold tracking-wide cursor-pointer flex items-center gap-2 transition-all duration-300 ${
+              className={`py-2.5 px-7 text-[14px] md:text-[15px] font-semibold tracking-wide cursor-pointer flex items-center gap-2 transition-all duration-300 ${
                 loading || !text.trim()
                   ? 'bg-gray-100 text-gray-400 rounded-xl cursor-not-allowed'
                   : 'btn-glow text-white rounded-xl'

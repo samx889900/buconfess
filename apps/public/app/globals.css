@@ -59,18 +59,18 @@ body {
 /* ── Gradient Button ───────────────────────── */
 .btn-glow {
   position: relative;
-  background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
-  box-shadow: 0 4px 15px rgba(139, 92, 246, 0.25), 0 2px 5px rgba(0,0,0,0.1);
+  background: linear-gradient(135deg, #7C3AED 0%, #8B5CF6 100%);
+  box-shadow: 0 4px 14px rgba(139, 92, 246, 0.2), 0 2px 4px rgba(0,0,0,0.06);
   border: none;
   border-radius: 14px;
   transition: all 0.5s cubic-bezier(0.22, 1, 0.36, 1);
   overflow: hidden;
 }
 .btn-glow:hover {
-  transform: translateY(-2px) scale(1.01);
-  box-shadow: 0 8px 25px rgba(139, 92, 246, 0.35), 0 4px 10px rgba(0,0,0,0.15);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.25), 0 3px 8px rgba(0,0,0,0.08);
 }
-.btn-glow:active { transform: translateY(0) scale(0.98); }
+.btn-glow:active { transform: translateY(0); }
 
 .btn-glow::after {
   content: '';
@@ -100,14 +100,14 @@ body {
   transition: border-color 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .confession-card:focus-within {
-  border-color: rgba(139, 92, 246, 0.3) !important;
-  box-shadow: 0 0 50px rgba(139, 92, 246, 0.08), 0 15px 35px rgba(0, 0, 0, 0.04);
-  transform: translateY(-2px);
+  border-color: rgba(139, 92, 246, 0.2) !important;
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.05), 0 8px 24px rgba(0, 0, 0, 0.04);
+  transform: translateY(-1px);
 }
 
 /* ── Text Gradient ─────────────────────────── */
 .text-grad {
-  background: linear-gradient(135deg, #111118 0%, #7C3AED 70%, #10B981 100%);
+  background: linear-gradient(135deg, #374151 0%, #6D28D9 60%, #8B5CF6 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

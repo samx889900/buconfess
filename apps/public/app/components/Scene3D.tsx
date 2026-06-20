@@ -6,26 +6,26 @@ import { Html, Float, Environment } from '@react-three/drei';
 import * as THREE from 'three';
 
 const CONFESSIONS = [
-  "I failed my midterm but I'm still smiling.",
-  "Does anyone else feel completely lost in CS301?",
-  "I think I'm in love with my lab partner.",
-  "Library coffee is the only thing keeping me alive.",
-  "I skipped class today to sleep. No regrets.",
-  "Who else is grinding LeetCode at 3 AM?",
-  "I miss home cooked food so much...",
-  "Imposter syndrome is hitting me hard right now.",
-  "To the girl in the red hoodie, you have a beautiful smile.",
-  "I just got my first internship offer! 😭",
-  "I have no idea what I'm doing with my life.",
-  "Is it normal to eat cereal for dinner 4 days a week?",
-  "My code finally compiled and I don't know why.",
-  "I spent 5 hours debugging a missing semicolon.",
-  "I just want to sleep for a week straight.",
-  "I pretend to take notes but I'm just playing Minesweeper.",
-  "Does anyone actually read the syllabus?",
-  "I'm terrified of graduating next year.",
-  "I dropped a class because the walk was too far.",
-  "Thank you to the person who held the door for me today."
+  "Does anyone actually know what's going on in the placements group?",
+  "I skipped 8 AM classes for a week and now I'm terrified of the attendance portal.",
+  "Library coffee is the only thing keeping my CGPA above a 7.",
+  "To the guy who helped me debug my Python code in the lab: thank you.",
+  "Is the mess food getting worse or am I just getting tired of it?",
+  "My roommate sets 5 alarms and sleeps through all of them.",
+  "Imposter syndrome is hitting so hard during these internship tests.",
+  "I thought I wanted to do CS until I met Data Structures.",
+  "Why is the WiFi always down when I actually want to study?",
+  "The walk from the hostel to the academic block is my only cardio.",
+  "I pretend to take notes but I'm just stressing over my resume.",
+  "I miss my mom's cooking so much it hurts.",
+  "Shoutout to the guard bhaiya who always smiles at me.",
+  "I spent 5 hours on a project just to realize I missed a semicolon.",
+  "We need a better place to get midnight snacks.",
+  "Does anyone else feel completely lost about their career?",
+  "I think I'm falling for my lab partner, but they graduate next year.",
+  "Just saw a peacock on campus, made my whole day.",
+  "Grinding LeetCode at 3 AM because I have no idea what else to do.",
+  "I actually really love it here, despite the stress."
 ];
 
 function InteractiveConfession({ item }: { item: any }) {
@@ -46,15 +46,15 @@ function InteractiveConfession({ item }: { item: any }) {
     const dy = vec.y - state.pointer.y;
     const distance = Math.sqrt(dx * dx + (dy * dy * 1.5));
     
-    if (distance < 0.6) {
-      const force = Math.pow(0.6 - distance, 2) * 12;
+    if (distance < 0.65) {
+      const force = Math.pow(0.65 - distance, 2) * 10;
       const angle = Math.atan2(dy, dx);
       velocity.x += Math.cos(angle) * force * delta;
       velocity.y += Math.sin(angle) * force * delta;
     }
     
-    const springForce = 2.5;
-    const damping = 0.88;
+    const springForce = 2.0;
+    const damping = 0.86;
     
     velocity.x += (basePos.x - currentPos.x) * springForce * delta;
     velocity.y += (basePos.y - currentPos.y) * springForce * delta;
@@ -115,8 +115,8 @@ function InteractiveConfession({ item }: { item: any }) {
 
 function FloatingConfessions() {
   const items = useMemo(() => {
-    const count = 60;
-    // Generate 60 random items, picking random confessions
+    const count = 65;
+    // Generate 65 random items, picking random confessions
     const selected = Array.from({ length: count }, () => CONFESSIONS[Math.floor(Math.random() * CONFESSIONS.length)]);
 
     const NAMES = ["Alex", "Jordan", "Taylor", "Morgan", "Sam", "Casey", "Riley", "Avery"];
@@ -125,14 +125,14 @@ function FloatingConfessions() {
 
     return selected.map((text, i) => {
       // Arrange them in an elegant concentric ring/spiral pattern
-      const angle = i * ((Math.PI * 2) / 11); // Spiral angle spread
-      const radius = 4 + (i * 0.2); // Expanding outward radially
+      const angle = i * ((Math.PI * 2) / 12); // Spiral angle spread
+      const radius = 5 + (i * 0.25); // Expanding outward radially, pushed further out
       
       const x = Math.cos(angle) * radius;
       // Squash the Y axis slightly so it fits screen aspect ratio better
-      const y = Math.sin(angle) * (radius * 0.6); 
+      const y = Math.sin(angle) * (radius * 0.7); 
       // Stagger Z depth significantly to create a dense 3D cloud
-      const z = -2 - (Math.random() * 10); 
+      const z = -3 - (Math.random() * 12); 
       
       // Subtle static rotation for organic feel
       const rotX = (Math.random() - 0.5) * 0.1;

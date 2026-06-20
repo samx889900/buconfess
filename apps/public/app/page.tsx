@@ -91,7 +91,7 @@ export default function Home() {
                 </span>
               </div>
 
-              <h1 className="text-5xl sm:text-6xl md:text-[5.5rem] font-extrabold tracking-tight leading-[1.05] mb-6">
+              <h1 className="text-5xl md:text-6xl lg:text-[5rem] font-extrabold tracking-tight leading-[1.1] mb-6">
                 <span className="text-gray-900">Speak </span>
                 <span className="text-grad">Freely.</span>
                 <br />
@@ -99,8 +99,8 @@ export default function Home() {
                 <span className="text-grad">Anonymous.</span>
               </h1>
 
-              <p className="text-base md:text-lg text-gray-600 max-w-xl mx-auto leading-relaxed font-medium">
-                Share your thoughts with the Bennett community without revealing your identity. A safe, encrypted, and private space.
+              <p className="text-base md:text-lg text-gray-600 max-w-lg mx-auto leading-relaxed font-medium">
+                Share your thoughts with the Bennett community without revealing your identity. A safe space for honest conversations, late-night thoughts, and unspoken truths.
               </p>
             </motion.div>
 
