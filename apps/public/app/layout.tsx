@@ -37,9 +37,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                 href="https://roomie.buconfess.in/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hidden md:flex items-center gap-1 mr-2 px-3 py-1.5 text-[12px] font-medium text-white bg-gradient-to-r from-[#8B5CF6] to-[#7C3AED] hover:from-[#7C3AED] hover:to-[#6D28D9] rounded-lg transition-all shadow-[0_0_15px_rgba(139,92,246,0.3)] hover:shadow-[0_0_20px_rgba(139,92,246,0.5)]"
+                className="flex items-center gap-1 mr-1 sm:mr-2 px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-[12px] font-medium text-white bg-gradient-to-r from-[#8B5CF6] to-[#7C3AED] hover:from-[#7C3AED] hover:to-[#6D28D9] rounded-lg transition-all shadow-[0_0_15px_rgba(139,92,246,0.3)] hover:shadow-[0_0_20px_rgba(139,92,246,0.5)] whitespace-nowrap"
               >
-                <span>Finding a new roommate?</span>
+                <span className="hidden md:inline">Finding a new roommate?</span>
+                <span className="md:hidden">Roommate?</span>
               </a>
               {[
                 { href: '/', label: 'Home' },
