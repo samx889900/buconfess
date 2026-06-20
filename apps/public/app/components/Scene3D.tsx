@@ -46,15 +46,15 @@ function InteractiveConfession({ item }: { item: any }) {
     const dy = vec.y - state.pointer.y;
     const distance = Math.sqrt(dx * dx + (dy * dy * 1.5));
     
-    if (distance < 0.4) {
-      const force = (0.4 - distance) * 5;
+    if (distance < 0.6) {
+      const force = Math.pow(0.6 - distance, 2) * 12;
       const angle = Math.atan2(dy, dx);
       velocity.x += Math.cos(angle) * force * delta;
       velocity.y += Math.sin(angle) * force * delta;
     }
     
-    const springForce = 4.0;
-    const damping = 0.85;
+    const springForce = 2.5;
+    const damping = 0.88;
     
     velocity.x += (basePos.x - currentPos.x) * springForce * delta;
     velocity.y += (basePos.y - currentPos.y) * springForce * delta;
@@ -75,33 +75,36 @@ function InteractiveConfession({ item }: { item: any }) {
     >
       <group ref={groupRef}>
         <Html transform center scale={item.scale} zIndexRange={[1, 0]}>
-          <div className="w-[420px] bg-white shadow-xl border border-gray-100 p-5 font-sans pointer-events-none select-none text-left">
-            <div className="flex items-center gap-3 mb-3">
+          <div 
+            className="w-[380px] bg-white/95 backdrop-blur-md shadow-[0_8px_30px_rgba(0,0,0,0.04)] rounded-2xl border border-gray-100 p-6 font-sans pointer-events-none select-none text-left"
+            style={{ opacity: item.opacity }}
+          >
+            <div className="flex items-center gap-3.5 mb-4">
               <div 
-                className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
+                className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-sm"
                 style={{ backgroundColor: item.color }}
               >
                 {item.author.charAt(0)}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-gray-900 text-[15px]">{item.author}</span>
-                <span className="text-gray-500 text-[13px]">{item.time}</span>
+              <div className="flex flex-col">
+                <span className="font-bold text-gray-900 text-[15px] tracking-tight">{item.author}</span>
+                <span className="text-gray-400 text-[12px] font-medium tracking-wide">{item.time}</span>
               </div>
             </div>
             
-            <p className="text-gray-800 text-[16px] leading-relaxed mb-4">
+            <p className="text-gray-700 text-[15px] font-medium leading-relaxed mb-5">
               {item.text}
             </p>
             
-            <div className="flex items-center gap-5 text-gray-500 font-medium text-[13px]">
+            <div className="flex items-center gap-6 text-gray-400 font-semibold text-[13px]">
               <div className="flex items-center gap-2">
-                <svg className="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 20 20"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" /></svg>
-                <span>{item.likes}</span>
+                <svg className="w-4 h-4 text-purple-500" fill="currentColor" viewBox="0 0 20 20"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" /></svg>
+                <span className="text-gray-600">{item.likes}</span>
               </div>
               <div className="flex items-center gap-2">
-                <svg className="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 20 20"><path d="M18 9.5a1.5 1.5 0 11-3 0v-6a1.5 1.5 0 013 0v6zM14 9.667v-5.43a2 2 0 00-1.105-1.79l-.05-.025A4 4 0 0011.055 2H5.64a2 2 0 00-1.962 1.608l-1.2 6A2 2 0 004.44 12H8v4a2 2 0 002 2 1 1 0 001-1v-.667a4 4 0 01.8-2.4l1.4-1.866a4 4 0 00.8-2.4z" /></svg>
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M18 9.5a1.5 1.5 0 11-3 0v-6a1.5 1.5 0 013 0v6zM14 9.667v-5.43a2 2 0 00-1.105-1.79l-.05-.025A4 4 0 0011.055 2H5.64a2 2 0 00-1.962 1.608l-1.2 6A2 2 0 004.44 12H8v4a2 2 0 002 2 1 1 0 001-1v-.667a4 4 0 01.8-2.4l1.4-1.866a4 4 0 00.8-2.4z" /></svg>
               </div>
-              <span className="ml-1 uppercase tracking-wide cursor-pointer font-semibold text-gray-600">Reply</span>
+              <span className="ml-auto uppercase tracking-wider cursor-pointer font-bold text-[11px] hover:text-purple-600 transition-colors">Reply</span>
             </div>
           </div>
         </Html>
@@ -136,16 +139,17 @@ function FloatingConfessions() {
       const rotY = (Math.random() - 0.5) * 0.15;
       const rotZ = (Math.random() - 0.5) * 0.05;
       
-      const speed = 0.8 + Math.random() * 1.5; // Floating bob speed
+      const speed = 0.5 + Math.random() * 1.0; // Floating bob speed
 
       const author = NAMES[Math.floor(Math.random() * NAMES.length)];
       const time = TIMES[Math.floor(Math.random() * TIMES.length)];
       const color = COLORS[Math.floor(Math.random() * COLORS.length)];
       const likes = Math.floor(Math.random() * 500) + 12;
-      // Random scale between 0.18 (small) and 0.48 (large) - increased 1.5x again
-      const scale = 0.18 + Math.random() * 0.30;
+      
+      const scale = 0.20 + Math.random() * 0.35;
+      const opacity = Math.max(0.15, 1 - (Math.abs(z + 2) / 10)); // Farther cards are more transparent
 
-      return { x, y, z, rotX, rotY, rotZ, speed, text, author, time, color, likes, scale };
+      return { x, y, z, rotX, rotY, rotZ, speed, text, author, time, color, likes, scale, opacity };
     });
   }, []);
 

@@ -41,34 +41,34 @@ body {
 
 /* ── Glassmorphism ─────────────────────────── */
 .glass {
-  background: rgba(255,255,255,0.92);
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
-  border: 1px solid rgba(0,0,0,0.06);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid rgba(0,0,0,0.04);
+  box-shadow: 0 4px 30px rgba(0,0,0,0.04);
 }
 
 .glass-strong {
-  background: rgba(255,255,255,0.97);
-  backdrop-filter: blur(40px) saturate(160%);
-  -webkit-backdrop-filter: blur(40px) saturate(160%);
-  border: 1px solid rgba(0,0,0,0.08);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.06);
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(48px) saturate(200%);
+  -webkit-backdrop-filter: blur(48px) saturate(200%);
+  border: 1px solid rgba(255,255,255,0.6);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.06), inset 0 0 0 1px rgba(255,255,255,0.5);
 }
 
 /* ── Gradient Button ───────────────────────── */
 .btn-glow {
   position: relative;
   background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
-  box-shadow: 0 0 30px rgba(139, 92, 246, 0.3), 0 4px 20px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 15px rgba(139, 92, 246, 0.25), 0 2px 5px rgba(0,0,0,0.1);
   border: none;
   border-radius: 14px;
-  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.5s cubic-bezier(0.22, 1, 0.36, 1);
   overflow: hidden;
 }
 .btn-glow:hover {
-  transform: translateY(-3px) scale(1.02);
-  box-shadow: 0 0 60px rgba(139, 92, 246, 0.45), 0 8px 40px rgba(0,0,0,0.5);
+  transform: translateY(-2px) scale(1.01);
+  box-shadow: 0 8px 25px rgba(139, 92, 246, 0.35), 0 4px 10px rgba(0,0,0,0.15);
 }
 .btn-glow:active { transform: translateY(0) scale(0.98); }
 
@@ -97,11 +97,12 @@ body {
 
 /* ── Focus Glow for confession card ────────── */
 .confession-card {
-  transition: border-color 0.5s ease, box-shadow 0.5s ease;
+  transition: border-color 0.6s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .confession-card:focus-within {
-  border-color: rgba(139, 92, 246, 0.4) !important;
-  box-shadow: 0 0 80px rgba(139, 92, 246, 0.12), 0 0 30px rgba(139, 92, 246, 0.06);
+  border-color: rgba(139, 92, 246, 0.3) !important;
+  box-shadow: 0 0 50px rgba(139, 92, 246, 0.08), 0 15px 35px rgba(0, 0, 0, 0.04);
+  transform: translateY(-2px);
 }
 
 /* ── Text Gradient ─────────────────────────── */
@@ -137,21 +138,21 @@ textarea::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.25); border-ra
 
 .aurora-1 {
   width: 600px; height: 600px;
-  background: radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(139,92,246,0.10) 0%, transparent 70%);
   border-radius: 50%; filter: blur(100px);
   animation: aurora 25s ease-in-out infinite;
 }
 
 .aurora-2 {
   width: 400px; height: 400px;
-  background: radial-gradient(circle, rgba(57,255,20,0.06) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(57,255,20,0.04) 0%, transparent 70%);
   border-radius: 50%; filter: blur(100px);
   animation: aurora 30s ease-in-out infinite reverse;
 }
 
 .aurora-3 {
   width: 300px; height: 300px;
-  background: radial-gradient(circle, rgba(0,229,255,0.06) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(0,229,255,0.04) 0%, transparent 70%);
   border-radius: 50%; filter: blur(80px);
   animation: aurora 20s ease-in-out infinite 5s;
 }

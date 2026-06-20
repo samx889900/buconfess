@@ -49,10 +49,9 @@ export default function ConfessionPortal({ text, setText, onSubmit, loading, err
           onMouseMove={handleMouseMove}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={handleMouseLeave}
-          className="confession-card glass-strong rounded-[28px] p-7 md:p-9 relative overflow-hidden border-2 border-purple-300 shadow-[0_0_25px_rgba(139,92,246,0.15)]"
+          className="confession-card bg-white rounded-[32px] p-8 md:p-10 relative overflow-hidden border border-gray-100 shadow-[0_8px_40px_rgba(0,0,0,0.06),0_2px_10px_rgba(139,92,246,0.05)]"
           style={{
             transform: `perspective(1000px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
-            transition: 'transform 0.15s ease-out, border-color 0.5s ease, box-shadow 0.5s ease',
           }}
         >
 
@@ -70,8 +69,8 @@ export default function ConfessionPortal({ text, setText, onSubmit, loading, err
             onChange={(e) => setText(e.target.value)}
             placeholder="What's on your mind?..."
             maxLength={MAX}
-            rows={8}
-            className="w-full bg-white/50 border border-purple-300 rounded-2xl p-5 text-gray-900 text-[15px] md:text-base resize-none outline-none placeholder:text-gray-400 leading-relaxed transition-all duration-300 focus:border-purple-500 focus:shadow-[0_0_15px_rgba(139,92,246,0.2)] focus:bg-white relative z-10"
+            rows={7}
+            className="w-full bg-gray-50/60 border border-gray-200 rounded-2xl p-6 text-gray-900 text-[15px] md:text-base resize-none outline-none placeholder:text-gray-400 leading-relaxed transition-all duration-400 ease-[cubic-bezier(0.22,1,0.36,1)] focus:border-purple-400 focus:shadow-[0_0_0_4px_rgba(139,92,246,0.1)] focus:bg-white relative z-10"
             autoFocus
           />
 
@@ -99,10 +98,10 @@ export default function ConfessionPortal({ text, setText, onSubmit, loading, err
             <button
               type="submit"
               disabled={loading || !text.trim()}
-              className={`py-2.5 px-7 text-sm font-semibold cursor-pointer flex items-center gap-2 ${
+              className={`py-3 px-8 text-sm font-bold tracking-wide cursor-pointer flex items-center gap-2 transition-all duration-300 ${
                 loading || !text.trim()
-                  ? 'bg-black/[0.05] border-2 border-transparent text-gray-400 rounded-xl cursor-not-allowed'
-                  : 'btn-glow text-white border-2 border-purple-300 shadow-[0_0_15px_rgba(139,92,246,0.25)] rounded-xl'
+                  ? 'bg-gray-100 text-gray-400 rounded-xl cursor-not-allowed'
+                  : 'btn-glow text-white rounded-xl'
               }`}
             >
               {loading ? (
