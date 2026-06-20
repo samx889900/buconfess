@@ -120,7 +120,7 @@ export default function Home() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.6, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-              className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 mt-12 z-10 px-8 py-4"
+              className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 mt-12 z-10 px-8 py-4 bg-white/90 backdrop-blur-md border border-gray-100 shadow-sm rounded-2xl"
             >
               {[
                 { icon: <svg className="w-4 h-4 text-purple-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" /></svg>, label: 'End-to-end encrypted' },
