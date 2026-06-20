@@ -33,6 +33,14 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             </Link>
 
             <div className="flex items-center gap-0.5">
+              <a
+                href="https://roomie.buconfess.in/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden md:flex items-center gap-1 mr-2 px-3 py-1.5 text-[12px] font-medium text-white bg-gradient-to-r from-[#8B5CF6] to-[#7C3AED] hover:from-[#7C3AED] hover:to-[#6D28D9] rounded-lg transition-all shadow-[0_0_15px_rgba(139,92,246,0.3)] hover:shadow-[0_0_20px_rgba(139,92,246,0.5)]"
+              >
+                <span>Finding a new roommate?</span>
+              </a>
               {[
                 { href: '/', label: 'Home' },
                 { href: '/about', label: 'About' },
