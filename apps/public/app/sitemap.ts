@@ -5,6 +5,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
   
   return [
     {
+      url: 'https://roomie.buconfess.in/',
+      lastModified: new Date(),
+      changeFrequency: 'weekly',
+      priority: 0.8,
+    },
+    {
       url: `${baseUrl}`,
       lastModified: new Date(),
       changeFrequency: 'weekly',
