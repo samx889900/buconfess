@@ -67,9 +67,6 @@ export function generateConfessionImage(
         {/* Header */}
         <div style={{ display: 'flex', flexDirection: 'column', marginTop: '50px' }}>
           <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#ffffff' }}>BU Confessions</div>
-          <div style={{ fontSize: '22px', fontWeight: 'bold', color: '#e91e8c', marginTop: '10px', display: 'flex' }}>
-            {`#${confessionNumber}${partLabel}`}
-          </div>
         </div>
 
         {/* Divider */}
