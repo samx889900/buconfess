@@ -19,6 +19,24 @@ export function splitTextIntoParts(text: string): string[] {
   return parts;
 }
 
+function formatDate(isoString: string): string {
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return '';
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const day = d.getDate();
+    const month = months[d.getMonth()];
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    hours = hours % 12 || 12;
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    return `${day} ${month} ${year}, ${hours}:${minutes} ${ampm}`;
+  } catch {
+    return '';
+  }
+}
+
 export function generateConfessionImage(
   text: string,
   confessionNumber: number,
@@ -27,21 +45,7 @@ export function generateConfessionImage(
   createdAt?: string
 ) {
   const partLabel = totalParts > 1 ? ` (${partIndex + 1}/${totalParts})` : '';
-  
-  let dateLabel = '';
-  if (createdAt) {
-    try {
-      const d = new Date(createdAt);
-      if (!isNaN(d.getTime())) {
-        dateLabel = d.toLocaleString('en-IN', {
-          day: 'numeric', month: 'short', year: 'numeric',
-          hour: '2-digit', minute: '2-digit', hour12: true,
-        });
-      }
-    } catch {
-      // ignore invalid date
-    }
-  }
+  const dateLabel = createdAt ? formatDate(createdAt) : '';
 
   return new ImageResponse(
     (
@@ -77,13 +81,9 @@ export function generateConfessionImage(
         </div>
 
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <div style={{ fontSize: '24px', color: 'rgba(255,255,255,0.4)' }}>
-            @bu.confess
-          </div>
-          <div style={{ fontSize: '18px', color: 'rgba(255,255,255,0.3)' }}>
-            {dateLabel}
-          </div>
+        <div style={{ fontSize: '24px', color: 'rgba(255,255,255,0.4)', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex' }}>@bu.confess</div>
+          <div style={{ fontSize: '18px', color: 'rgba(255,255,255,0.3)', display: 'flex' }}>{dateLabel}</div>
         </div>
         
         {/* Bottom accent bar */}

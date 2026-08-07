@@ -235,7 +235,20 @@ export async function POST(req: NextRequest) {
   for (let i = 0; i < parts.length; i++) {
     const imageRes = await generateConfessionImage(parts[i], confNumber, i, parts.length, createdAt);
     const arrayBuffer = await imageRes.arrayBuffer();
-    const base64Image = Buffer.from(arrayBuffer).toString('base64');
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Validate the image is a valid PNG (magic bytes: 89 50 4E 47)
+    if (buffer.length < 8 || buffer[0] !== 0x89 || buffer[1] !== 0x50 || buffer[2] !== 0x4E || buffer[3] !== 0x47) {
+      console.error('Generated image is not a valid PNG', {
+        confessionId: id,
+        partIndex: i,
+        bufferLength: buffer.length,
+        firstBytes: buffer.slice(0, 8).toString('hex'),
+      });
+      return NextResponse.json({ error: 'Image generation failed — produced invalid PNG data.' }, { status: 500 });
+    }
+
+    const base64Image = buffer.toString('base64');
 
     const formData = new URLSearchParams();
     formData.append('image', base64Image);
@@ -248,9 +261,14 @@ export async function POST(req: NextRequest) {
 
     const imgbbData = await imgbbRes.json();
     if (!imgbbData.success) {
-      return NextResponse.json({ error: 'ImgBB Upload Failed: ' + imgbbData.error?.message }, { status: 500 });
+      console.error('ImgBB upload failed', { confessionId: id, partIndex: i, error: imgbbData.error });
+      return NextResponse.json({ error: 'ImgBB Upload Failed: ' + (imgbbData.error?.message || JSON.stringify(imgbbData.error)) }, { status: 500 });
     }
-    finalImageUrls.push(imgbbData.data.url);
+
+    // Use display_url (always a direct image link) over url (can be a viewer page)
+    const imageUrl = imgbbData.data.display_url || imgbbData.data.image?.url || imgbbData.data.url;
+    console.log('ImgBB uploaded successfully', { confessionId: id, partIndex: i, imageUrl });
+    finalImageUrls.push(imageUrl);
   }
 
   const caption = buildCaption(confNumber, process.env.IG_HANDLE || 'bu.confess');
