@@ -1,6 +1,6 @@
 import { ImageResponse } from 'next/og';
 
-const MAX_CHARS_PER_IMAGE = 585;
+const MAX_CHARS_PER_IMAGE = 650;
 
 export function splitTextIntoParts(text: string): string[] {
   if (text.length <= MAX_CHARS_PER_IMAGE) return [text];
@@ -23,10 +23,24 @@ export function generateConfessionImage(
   text: string,
   confessionNumber: number,
   partIndex: number,
-  totalParts: number
+  totalParts: number,
+  createdAt?: string
 ) {
   const partLabel = totalParts > 1 ? ` (${partIndex + 1}/${totalParts})` : '';
   
+  let dateLabel = '';
+  if (createdAt) {
+    try {
+      const d = new Date(createdAt);
+      dateLabel = d.toLocaleString('en-IN', {
+        day: 'numeric', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: true,
+      });
+    } catch {
+      // ignore invalid date
+    }
+  }
+
   return new ImageResponse(
     (
       <div
@@ -61,8 +75,15 @@ export function generateConfessionImage(
         </div>
 
         {/* Footer */}
-        <div style={{ fontSize: '24px', color: 'rgba(255,255,255,0.4)', marginBottom: '10px' }}>
-          @bu.confess
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+          <div style={{ fontSize: '24px', color: 'rgba(255,255,255,0.4)' }}>
+            @bu.confess
+          </div>
+          {dateLabel && (
+            <div style={{ fontSize: '18px', color: 'rgba(255,255,255,0.3)' }}>
+              {dateLabel}
+            </div>
+          )}
         </div>
         
         {/* Bottom accent bar */}

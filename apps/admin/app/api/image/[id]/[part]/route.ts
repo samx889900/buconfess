@@ -28,11 +28,13 @@ export async function GET(
   }
 
   const number = confessionRow.get('number') ? parseInt(confessionRow.get('number')) : parseInt(idStr);
+  const createdAt = confessionRow.get('createdAt') || '';
 
   return generateConfessionImage(
     parts[partIndex],
     number,
     partIndex,
-    parts.length
+    parts.length,
+    createdAt
   );
 }

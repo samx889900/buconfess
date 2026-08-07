@@ -222,11 +222,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'IMGBB_API_KEY is not set. Cannot upload to ImgBB.' }, { status: 500 });
   }
 
+  // Ensure we have a valid confession number for the image
+  if (confNumber === null || confNumber === undefined || isNaN(confNumber)) {
+    const rawNumber = confessionRow.get('number');
+    confNumber = rawNumber ? parseInt(rawNumber) : 0;
+  }
+
   // Generate buffers and upload to ImgBB to get 100% public URLs for Instagram
   const finalImageUrls: string[] = [];
   const parts = splitTextIntoParts(confessionRow.get('text') || '');
+  const createdAt = confessionRow.get('createdAt') || '';
   for (let i = 0; i < parts.length; i++) {
-    const imageRes = await generateConfessionImage(parts[i], confNumber || 0, i, parts.length);
+    const imageRes = await generateConfessionImage(parts[i], confNumber, i, parts.length, createdAt);
     const arrayBuffer = await imageRes.arrayBuffer();
     const base64Image = Buffer.from(arrayBuffer).toString('base64');
 
