@@ -32,10 +32,12 @@ export function generateConfessionImage(
   if (createdAt) {
     try {
       const d = new Date(createdAt);
-      dateLabel = d.toLocaleString('en-IN', {
-        day: 'numeric', month: 'short', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', hour12: true,
-      });
+      if (!isNaN(d.getTime())) {
+        dateLabel = d.toLocaleString('en-IN', {
+          day: 'numeric', month: 'short', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', hour12: true,
+        });
+      }
     } catch {
       // ignore invalid date
     }
@@ -79,11 +81,9 @@ export function generateConfessionImage(
           <div style={{ fontSize: '24px', color: 'rgba(255,255,255,0.4)' }}>
             @bu.confess
           </div>
-          {dateLabel && (
-            <div style={{ fontSize: '18px', color: 'rgba(255,255,255,0.3)' }}>
-              {dateLabel}
-            </div>
-          )}
+          <div style={{ fontSize: '18px', color: 'rgba(255,255,255,0.3)' }}>
+            {dateLabel}
+          </div>
         </div>
         
         {/* Bottom accent bar */}
