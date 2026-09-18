@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFromRequest } from '@/lib/auth';
-import { getGoogleSheet } from '@/lib/googleSheets';
 import { generateConfessionImage, splitTextIntoParts } from '@/lib/imageGenerator';
+import { getSupabaseAdmin } from '@/lib/supabase';
+import { getAdminConfessionById, updateAdminConfession } from '@/lib/confessions';
+import { ensureConfessionNumber } from '@/lib/canvas/pipeline';
 
 const GRAPH_API_VERSION = 'v20.0';
-const DEFAULT_APP_URL = 'https://buconfess-production.up.railway.app';
 
 /** Maximum time (ms) to wait for a container to finish processing. */
 const CONTAINER_POLL_TIMEOUT_MS = 90_000;
@@ -163,19 +164,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { id } = await req.json();
-  
-  const doc = await getGoogleSheet();
-  const sheet = doc.sheetsByIndex[0];
-  const rows = await sheet.getRows();
-  
-  const confessionRow = rows.find(row => row.get('id') === id.toString() || row.get('id') === id);
-  if (!confessionRow) {
+  const { id: rawId } = await req.json();
+  const id = typeof rawId === 'number' ? rawId : parseInt(rawId, 10);
+  if (isNaN(id) || id <= 0) {
+    return NextResponse.json({ error: 'Invalid confession ID' }, { status: 400 });
+  }
+
+  const confession = await getAdminConfessionById(id);
+  if (!confession) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  let status = confessionRow.get('status');
-  if (status !== 'approved' && status !== 'pending') {
+  if (confession.status !== 'approved' && confession.status !== 'pending') {
     return NextResponse.json(
       { error: 'Only pending or approved confessions can be posted to Instagram.' },
       { status: 400 }
@@ -184,54 +184,39 @@ export async function POST(req: NextRequest) {
 
   const baseUrl = getBaseUrl(req);
   let storedImageUrls: string[] = [];
-  let confNumber: number | null = null;
+  const supabase = getSupabaseAdmin();
 
-  // If pending, generate images first
-  if (status === 'pending') {
-    let rawNumber = confessionRow.get('number');
-    if (!rawNumber) {
-      let maxNumber = 0;
-      for (const row of rows) {
-        const num = parseInt(row.get('number') || '0');
-        if (num > maxNumber) maxNumber = num;
-      }
-      confNumber = maxNumber + 1;
-      confessionRow.set('number', confNumber.toString());
-    } else {
-      confNumber = parseInt(rawNumber);
-    }
+  // Invariant: Confession number must draw monotonically and atomically via allocate_confession_number
+  const confNumber = await ensureConfessionNumber(supabase, confession.id, confession.number);
 
-    const parts = splitTextIntoParts(confessionRow.get('text') || '');
+  // If pending, prepare images and approve first
+  if (confession.status === 'pending') {
+    const parts = splitTextIntoParts(confession.text || '');
     const relativeUrls = parts.map((_, index) => `/api/image/${id}/${index}.png`);
     storedImageUrls = relativeUrls.map(value => toAbsoluteUrl(baseUrl, value));
 
-    confessionRow.set('parts', JSON.stringify(parts));
-    confessionRow.set('imageUrls', JSON.stringify(relativeUrls));
-    confessionRow.set('status', 'approved'); // Set to approved first, in case IG posting fails
-    confessionRow.set('updatedAt', new Date().toISOString());
-    await confessionRow.save();
+    await updateAdminConfession(confession.id, {
+      parts,
+      image_urls: relativeUrls,
+      status: 'approved',
+    });
   } else {
-    // It's already approved, just fetch existing image URLs
-    const imageUrlsStr = confessionRow.get('imageUrls');
-    const existingUrls: string[] = imageUrlsStr ? JSON.parse(imageUrlsStr) : [];
+    // It's already approved, fetch existing image URLs
+    const existingUrls: string[] = confession.image_urls || [];
     storedImageUrls = existingUrls.map((value: string) => toAbsoluteUrl(baseUrl, value));
-    confNumber = confessionRow.get('number') ? parseInt(confessionRow.get('number')) : null;
   }
   
   if (!process.env.IMGBB_API_KEY) {
     return NextResponse.json({ error: 'IMGBB_API_KEY is not set. Cannot upload to ImgBB.' }, { status: 500 });
   }
 
-  // Ensure we have a valid confession number for the image
-  if (confNumber === null || confNumber === undefined || isNaN(confNumber)) {
-    const rawNumber = confessionRow.get('number');
-    confNumber = rawNumber ? parseInt(rawNumber) : 0;
-  }
-
   // Generate buffers and upload to ImgBB to get 100% public URLs for Instagram
   const finalImageUrls: string[] = [];
-  const parts = splitTextIntoParts(confessionRow.get('text') || '');
-  const createdAt = confessionRow.get('createdAt') || '';
+  const parts = confession.parts && confession.parts.length > 0
+    ? confession.parts
+    : splitTextIntoParts(confession.text || '');
+  const createdAt = confession.created_at || '';
+
   for (let i = 0; i < parts.length; i++) {
     const imageRes = await generateConfessionImage(parts[i], confNumber, i, parts.length, createdAt);
     const arrayBuffer = await imageRes.arrayBuffer();
@@ -336,11 +321,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    confessionRow.set('status', 'posted');
-    confessionRow.set('igPostId', published.id);
-    confessionRow.set('igPermalink', permalink || '');
-    confessionRow.set('updatedAt', new Date().toISOString());
-    await confessionRow.save();
+    await updateAdminConfession(confession.id, {
+      status: 'posted',
+      ig_post_id: published.id,
+      ig_permalink: permalink || null,
+      posted_at: new Date().toISOString(),
+    });
 
     return NextResponse.json({
       success: true,

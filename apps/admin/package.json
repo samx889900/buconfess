@@ -1,24 +1,28 @@
 {
-  "name": "buconfess",
-  "version": "1.0.0",
+  "name": "buconfess-admin",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "migrate": "npx tsx ../scripts/migrate-sheets-to-supabase.ts"
   },
   "dependencies": {
+    "@google/genai": "^1.0.0",
     "@napi-rs/canvas": "^0.1.96",
-    "axios": "^1.6.8",
+    "@supabase/supabase-js": "^2.49.0",
     "bcryptjs": "^2.4.3",
     "cookie": "^1.1.1",
-    "form-data": "^4.0.0",
     "google-auth-library": "^10.7.0",
     "google-spreadsheet": "^5.3.0",
     "jsonwebtoken": "^9.0.2",
     "next": "^16.1.6",
     "react": "^19",
-    "react-dom": "^19"
+    "react-dom": "^19",
+    "resend": "^4.0.0",
+    "@react-email/components": "^0.0.32",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -30,6 +34,7 @@
     "autoprefixer": "^10",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.19.0",
     "typescript": "^5"
   }
 }

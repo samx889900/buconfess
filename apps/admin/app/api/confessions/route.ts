@@ -1,63 +1,74 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFromRequest } from '@/lib/auth';
-import { getGoogleSheet } from '@/lib/googleSheets';
+import {
+  getAdminConfessions,
+  createAdminConfession,
+  formatConfessionForAdmin,
+  ConfessionStatus,
+  VALID_CONFESSION_STATUSES,
+} from '@/lib/confessions';
 
 export async function POST(req: NextRequest) {
   try {
-    const { text } = await req.json();
-    if (!text || typeof text !== 'string') return NextResponse.json({ error: 'Text is required' }, { status: 400 });
-    if (text.trim().length < 10) return NextResponse.json({ error: 'Confession too short' }, { status: 400 });
-    if (text.length > 2000) return NextResponse.json({ error: 'Confession too long' }, { status: 400 });
-    
-    const doc = await getGoogleSheet();
-    const sheet = doc.sheetsByIndex[0];
-    
-    // We need to generate an ID
-    const rows = await sheet.getRows();
-    const newId = rows.length > 0 ? parseInt(rows[rows.length - 1].get('id')) + 1 : 1;
-    
-    await sheet.addRow({
-      id: newId.toString(),
-      text: text.trim(),
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    });
+    const isAdmin = await getAdminFromRequest();
+    if (!isAdmin) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-    return NextResponse.json({ success: true, id: newId });
+    const body = await req.json();
+    const text = body?.text;
+    if (!text || typeof text !== 'string') {
+      return NextResponse.json({ error: 'Text is required' }, { status: 400 });
+    }
+    if (text.trim().length < 10) {
+      return NextResponse.json({ error: 'Confession too short' }, { status: 400 });
+    }
+    if (text.length > 2000) {
+      return NextResponse.json({ error: 'Confession too long' }, { status: 400 });
+    }
+
+    const created = await createAdminConfession({ text: text.trim() });
+    return NextResponse.json({ success: true, id: created.id });
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+    console.error('Error creating confession:', e);
+    const message = e instanceof Error ? e.message : 'Server error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 export async function GET(req: NextRequest) {
   try {
     const isAdmin = await getAdminFromRequest();
-    if (!isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    
+    if (!isAdmin) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
-    const status = searchParams.get('status') || 'pending';
-    
-    const doc = await getGoogleSheet();
-    const sheet = doc.sheetsByIndex[0];
-    const rows = await sheet.getRows();
-    
-    // Parse rows into objects
-    const confessions = rows
-      .map(row => ({
-        id: parseInt(row.get('id') || '0'),
-        text: row.get('text') || '',
-        status: row.get('status') || 'pending',
-        createdAt: row.get('createdAt') || '',
-        updatedAt: row.get('updatedAt') || ''
-      }))
-      .filter(c => c.status === status)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      
-    return NextResponse.json(confessions);
+    const statusParam = searchParams.get('status') || 'pending';
+
+    let statusFilter: ConfessionStatus | 'all';
+    if (statusParam === 'all') {
+      statusFilter = 'all';
+    } else if (VALID_CONFESSION_STATUSES.includes(statusParam as ConfessionStatus)) {
+      statusFilter = statusParam as ConfessionStatus;
+    } else {
+      statusFilter = 'pending';
+    }
+
+    const pageParam = searchParams.get('page');
+    const limitParam = searchParams.get('limit');
+    const page = pageParam ? parseInt(pageParam, 10) : undefined;
+    const limit = limitParam ? Math.min(parseInt(limitParam, 10), 100) : undefined;
+
+    const confessions = await getAdminConfessions({
+      status: statusFilter,
+      page: page && page > 0 ? page : undefined,
+      limit: limit && limit > 0 ? limit : undefined,
+    });
+    return NextResponse.json(confessions.map(formatConfessionForAdmin));
   } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+    console.error('Error fetching confessions:', e);
+    const message = e instanceof Error ? e.message : 'Server error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
