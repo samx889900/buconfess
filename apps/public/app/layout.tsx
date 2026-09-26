@@ -4,6 +4,7 @@ import "./globals.css";
 import Link from "next/link";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { ToursBUNavLink, ToursBUFooterCTA } from "./components/ToursBUPromotion";
 
 const inter = Inter({ subsets: ["latin"], weight: ["300", "400", "500", "600", "700", "800"] });
 
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             </Link>
 
             <div className="flex items-center gap-1.5">
+              <ToursBUNavLink />
               <a
                 href="https://roomie.buconfess.in/"
                 target="_blank"
@@ -69,7 +71,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <main className="flex-1 flex flex-col pt-28 grid-bg">{children}</main>
 
         {/* ── Footer ─────────────────────────────────── */}
-        <footer className="relative z-10 mt-auto pt-24 pb-12 px-6">
+        <footer className="relative z-10 mt-auto pt-16 pb-12 px-6">
+          <ToursBUFooterCTA className="mb-14" />
           <div className="divider-glow max-w-2xl mx-auto mb-12" />
           <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8">
             <div className="flex flex-col items-center md:items-start gap-3">

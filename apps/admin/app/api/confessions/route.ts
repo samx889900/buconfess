@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     if (text.trim().length < 10) {
       return NextResponse.json({ error: 'Confession too short' }, { status: 400 });
     }
-    if (text.length > 2000) {
+    if (text.length > 5000) {
       return NextResponse.json({ error: 'Confession too long' }, { status: 400 });
     }
 

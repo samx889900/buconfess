@@ -9,6 +9,8 @@
 // or expose must be accessed via getSecrets().
 // ---------------------------------------------------------------------------
 
+import { z } from 'zod';
+
 export interface AppSecrets {
   // Supabase
   supabaseUrl: string;
@@ -22,7 +24,7 @@ export interface AppSecrets {
   instagramAccessToken: string;
   instagramUserId: string;
 
-  // Google Sheets (Admin Sync Only)
+  // Google Sheets (Secondary Sync Destination — Non-blocking)
   googleSheetId: string;
   googleServiceAccountEmail: string;
   googlePrivateKey: string;
@@ -36,6 +38,35 @@ export interface AppSecrets {
   adminPasswordHash: string;
   jwtSecret: string;
   ipHashSecret: string;
+}
+
+// Server environment schema
+const ServerEnvSchema = z.object({
+  SUPABASE_URL: z.string().min(1, 'SUPABASE_URL is required'),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1, 'SUPABASE_SERVICE_ROLE_KEY is required'),
+  GEMINI_API_KEY: z.string().min(1, 'GEMINI_API_KEY is required'),
+  INSTAGRAM_ACCESS_TOKEN: z.string().min(1, 'INSTAGRAM_ACCESS_TOKEN is required'),
+  INSTAGRAM_USER_ID: z.string().min(1, 'INSTAGRAM_USER_ID is required'),
+  ADMIN_PASSWORD_HASH: z.string().min(1, 'ADMIN_PASSWORD_HASH is required'),
+  JWT_SECRET: z.string().min(1, 'JWT_SECRET is required'),
+  IP_HASH_SECRET: z.string().min(1, 'IP_HASH_SECRET is required'),
+});
+
+/**
+ * Validates server environment variables using Zod.
+ * Emits actionable error logs specifying only the missing variable name(s),
+ * never printing or exposing secret values.
+ */
+export function validateServerEnv(): { valid: boolean; missingKeys: string[] } {
+  const result = ServerEnvSchema.safeParse(process.env);
+  if (!result.success) {
+    const missingKeys = result.error.issues.map((i) => String(i.path[0]));
+    for (const key of missingKeys) {
+      console.error(`[CONFIG] Missing required production environment variable: ${key}`);
+    }
+    return { valid: false, missingKeys };
+  }
+  return { valid: true, missingKeys: [] };
 }
 
 // Cache the secrets object so we only parse env vars once
@@ -53,6 +84,7 @@ export function getSecrets(): AppSecrets {
   const required = (key: string, envKey: string): string => {
     const value = process.env[envKey];
     if (!value) {
+      console.error(`[CONFIG] Missing required production environment variable: ${envKey}`);
       throw new Error(`Missing required environment variable: ${envKey}`);
     }
     return value;
@@ -75,10 +107,10 @@ export function getSecrets(): AppSecrets {
     instagramAccessToken: required('instagramAccessToken', 'INSTAGRAM_ACCESS_TOKEN'),
     instagramUserId: required('instagramUserId', 'INSTAGRAM_USER_ID'),
 
-    // Google Sheets (Admin Sync Only)
-    googleSheetId: required('googleSheetId', 'GOOGLE_SHEET_ID'),
-    googleServiceAccountEmail: required('googleServiceAccountEmail', 'GOOGLE_SERVICE_ACCOUNT_EMAIL'),
-    googlePrivateKey: required('googlePrivateKey', 'GOOGLE_PRIVATE_KEY'),
+    // Google Sheets (Secondary Sync Destination — Non-blocking, optional at core startup)
+    googleSheetId: optional('GOOGLE_SHEET_ID'),
+    googleServiceAccountEmail: optional('GOOGLE_SERVICE_ACCOUNT_EMAIL'),
+    googlePrivateKey: optional('GOOGLE_PRIVATE_KEY'),
 
     // Email
     resendApiKey: optional('RESEND_API_KEY'),
@@ -92,6 +124,22 @@ export function getSecrets(): AppSecrets {
   };
 
   return _secrets;
+}
+
+/**
+ * Returns Google Sheets credentials if configured, or null if unconfigured.
+ * Ensures Google Sheets remains strictly secondary and unblocks core publishing.
+ */
+export function getGoogleSheetsSecrets(): {
+  sheetId: string;
+  serviceAccountEmail: string;
+  privateKey: string;
+} | null {
+  const sheetId = process.env.GOOGLE_SHEET_ID;
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const key = process.env.GOOGLE_PRIVATE_KEY;
+  if (!sheetId || !email || !key) return null;
+  return { sheetId, serviceAccountEmail: email, privateKey: key };
 }
 
 /**

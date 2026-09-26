@@ -4,6 +4,7 @@ import { useState, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import ConfessionPortal from './components/ConfessionPortal';
+import { ToursBUBanner } from './components/ToursBUPromotion';
 
 // Dynamically import the 3D scene (client-only, no SSR)
 const Scene3D = dynamic(() => import('./components/Scene3D'), { ssr: false });
@@ -69,10 +70,11 @@ export default function Home() {
             </p>
             <button
               onClick={() => { setText(''); setSubmitted(false); }}
-              className="w-full py-3 px-6 text-sm font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors cursor-pointer"
+              className="w-full py-3 px-6 text-sm font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors cursor-pointer mb-6"
             >
               Submit Another
             </button>
+            <ToursBUBanner className="text-left" />
           </motion.div>
         ) : (
           <div key="form" className="flex flex-col items-center z-10 w-full pointer-events-none">
@@ -132,6 +134,11 @@ export default function Home() {
                 </div>
               ))}
             </motion.div>
+
+            {/* ToursBU Student Trips Promotion Banner */}
+            <div className="pointer-events-auto w-full max-w-2xl mt-8">
+              <ToursBUBanner />
+            </div>
           </div>
         )}
       </AnimatePresence>

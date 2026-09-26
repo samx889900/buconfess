@@ -43,6 +43,14 @@ export async function POST(req: NextRequest) {
 
     return res;
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('not set') || message.includes('environment variable')) {
+      console.error('[AUTH_CONFIG_ERROR] Server authentication configuration missing:', message);
+      return NextResponse.json(
+        { error: 'Authentication service configuration error. Please check server environment.' },
+        { status: 503 }
+      );
+    }
     console.error('[LOGIN] Authentication error:', error);
     return NextResponse.json(
       { error: 'Authentication failed' },

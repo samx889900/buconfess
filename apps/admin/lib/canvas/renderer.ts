@@ -18,34 +18,50 @@ import { CANVAS_CONFIG } from './config';
 let fontRegistered = false;
 
 /**
- * Registers the bundled Geist font once at runtime.
+ * Registers the bundled Geist and Noto Emoji fonts once at runtime.
  */
-function ensureFontRegistered(): void {
+export function ensureFontRegistered(): void {
   if (fontRegistered) return;
 
-  const fontPaths = [
-    // 1. Local admin asset directory (bundled in repo)
+  // 1. Local admin asset directory for Geist font
+  const geistPaths = [
     path.resolve(process.cwd(), 'apps/admin/assets/fonts/Geist-Regular.ttf'),
     path.resolve(process.cwd(), 'assets/fonts/Geist-Regular.ttf'),
     path.resolve(__dirname, '../../assets/fonts/Geist-Regular.ttf'),
     path.resolve(__dirname, '../../../assets/fonts/Geist-Regular.ttf'),
-    // 2. Next.js fallback
     path.resolve(process.cwd(), 'node_modules/next/dist/compiled/@vercel/og/Geist-Regular.ttf'),
   ];
 
-  for (const fp of fontPaths) {
+  for (const fp of geistPaths) {
     if (fs.existsSync(fp)) {
       try {
         GlobalFonts.registerFromPath(fp, 'Geist');
-        fontRegistered = true;
-        return;
+        break;
       } catch (err) {
-        console.warn(`[CANVAS] Could not register font from ${fp}:`, err);
+        console.warn(`[CANVAS] Could not register Geist font from ${fp}:`, err);
       }
     }
   }
 
-  // If no custom font file found, system fallback will be used
+  // 2. Bundled Noto Emoji font (SIL Open Font License)
+  const emojiPaths = [
+    path.resolve(process.cwd(), 'apps/admin/assets/fonts/NotoEmoji-Regular.ttf'),
+    path.resolve(process.cwd(), 'assets/fonts/NotoEmoji-Regular.ttf'),
+    path.resolve(__dirname, '../../assets/fonts/NotoEmoji-Regular.ttf'),
+    path.resolve(__dirname, '../../../assets/fonts/NotoEmoji-Regular.ttf'),
+  ];
+
+  for (const fp of emojiPaths) {
+    if (fs.existsSync(fp)) {
+      try {
+        GlobalFonts.registerFromPath(fp, 'Noto Emoji');
+        break;
+      } catch (err) {
+        console.warn(`[CANVAS] Could not register Noto Emoji font from ${fp}:`, err);
+      }
+    }
+  }
+
   fontRegistered = true;
 }
 
@@ -54,10 +70,14 @@ export interface RenderSlideOptions {
   slideIndex: number;
   totalSlides: number;
   createdAt?: string;
+  bodyFontSize?: number;
+  bodyLineHeight?: number;
 }
 
 /**
  * Wraps text into lines that fit within a maximum pixel width.
+ * Uses Intl.Segmenter to guarantee that multi-byte emojis and ZWJ sequences
+ * are never broken across character splits.
  */
 function wrapTextToLines(
   ctx: SKRSContext2D,
@@ -66,6 +86,7 @@ function wrapTextToLines(
 ): string[] {
   const lines: string[] = [];
   const paragraphs = text.split('\n');
+  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
   for (const para of paragraphs) {
     if (para.trim().length === 0) {
@@ -77,6 +98,7 @@ function wrapTextToLines(
     let currentLine = '';
 
     for (const word of words) {
+      if (!word) continue;
       const testLine = currentLine ? `${currentLine} ${word}` : word;
       const metrics = ctx.measureText(testLine);
 
@@ -87,17 +109,18 @@ function wrapTextToLines(
           lines.push(currentLine);
           currentLine = word;
         } else {
-          // Single word is wider than maxWidth; force break
-          let charChunk = '';
-          for (const char of word) {
-            if (ctx.measureText(charChunk + char).width <= maxWidth) {
-              charChunk += char;
+          // Single word/cluster is wider than maxWidth; break using Intl.Segmenter graphemes!
+          let graphemeChunk = '';
+          const graphemes = Array.from(segmenter.segment(word), (s) => s.segment);
+          for (const g of graphemes) {
+            if (ctx.measureText(graphemeChunk + g).width <= maxWidth) {
+              graphemeChunk += g;
             } else {
-              lines.push(charChunk);
-              charChunk = char;
+              lines.push(graphemeChunk);
+              graphemeChunk = g;
             }
           }
-          currentLine = charChunk;
+          currentLine = graphemeChunk;
         }
       }
     }
@@ -217,11 +240,14 @@ export async function renderConfessionSlide(
   const contentEndY = height - layout.paddingY - layout.footerHeight;
   const availableContentHeight = contentEndY - contentStartY;
 
+  const bodyFontSize = options.bodyFontSize ?? typography.bodyFontSize;
+  const bodyLineHeight = options.bodyLineHeight ?? typography.bodyLineHeight;
+
   ctx.fillStyle = colors.textPrimary;
-  ctx.font = `normal ${typography.bodyFontSize}px ${typography.fontFamily}`;
+  ctx.font = `normal ${bodyFontSize}px ${typography.fontFamily}`;
 
   const lines = wrapTextToLines(ctx, slideText, maxContentWidth);
-  const totalTextHeight = lines.length * typography.bodyLineHeight;
+  const totalTextHeight = lines.length * bodyLineHeight;
 
   // Vertically balance text within available content space
   let textY = contentStartY;
@@ -231,12 +257,12 @@ export async function renderConfessionSlide(
   }
 
   for (const line of lines) {
-    if (textY + typography.bodyFontSize > contentEndY + 20) {
+    if (textY + bodyFontSize > contentEndY + 20) {
       // Safety guard against any vertical overflow
       break;
     }
-    ctx.fillText(line, layout.paddingX, textY + typography.bodyFontSize);
-    textY += typography.bodyLineHeight;
+    ctx.fillText(line, layout.paddingX, textY + bodyFontSize);
+    textY += bodyLineHeight;
   }
 
   // ── 6. Footer Section ──

@@ -2,19 +2,88 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '../supabase';
 import { splitConfessionText } from './splitter';
 import { renderConfessionSlide } from './renderer';
+import { censorAbuseTerms } from '../censor';
 import {
   ensureConfessionsBucket,
   getSlideStoragePath,
   uploadSlideImage,
 } from '../storage/storageService';
+import { getRuntimeSettings } from '../settings';
+import { CANVAS_CONFIG } from './config';
+import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
+import { ensureFontRegistered } from './renderer';
+
+/**
+ * Deterministic fit detection: checks whether all slides fit within the
+ * available content area at the given font size and line height.
+ * Uses the same word-wrapping measurement logic as the renderer.
+ */
+function checkAllSlidesFit(
+  slides: string[],
+  fontSize: number,
+  lineHeight: number
+): boolean {
+  ensureFontRegistered();
+  const { width, height } = CANVAS_CONFIG.dimensions;
+  const { layout, typography } = CANVAS_CONFIG;
+
+  const maxContentWidth = width - layout.paddingX * 2;
+  const headerY = layout.paddingY + 30;
+  const dividerY = headerY + 70;
+  const contentStartY = dividerY + 60;
+  const contentEndY = height - layout.paddingY - layout.footerHeight;
+  const availableContentHeight = contentEndY - contentStartY;
+
+  const canvas = createCanvas(1, 1); // tiny canvas just for text measurement
+  const ctx = canvas.getContext('2d');
+  ctx.font = `normal ${fontSize}px ${typography.fontFamily}`;
+
+  for (const slideText of slides) {
+    // Count how many wrapped lines this slide produces
+    const paragraphs = slideText.split('\n');
+    let lineCount = 0;
+    for (const para of paragraphs) {
+      if (para.trim().length === 0) {
+        lineCount++;
+        continue;
+      }
+      const words = para.split(/\s+/);
+      let currentLine = '';
+      for (const word of words) {
+        if (!word) continue;
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        if (ctx.measureText(testLine).width <= maxContentWidth) {
+          currentLine = testLine;
+        } else {
+          if (currentLine) {
+            lineCount++;
+            currentLine = word;
+          } else {
+            // Word wider than line — still counts as at least 1 line
+            lineCount++;
+            currentLine = '';
+          }
+        }
+      }
+      if (currentLine) lineCount++;
+    }
+
+    const totalTextHeight = lineCount * lineHeight;
+    if (totalTextHeight > availableContentHeight) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 // ---------------------------------------------------------------------------
-// Image Generation Pipeline & Carousel Orchestrator (BU Confessions v3.4)
+// Image Generation Pipeline & Carousel Orchestrator (BU Confessions v3.5)
 // ---------------------------------------------------------------------------
 // Takes an approved confession and:
 //   1. Assigns idempotent confession number if not already present
 //   2. Splits text into deterministic carousel slides
-//   3. Renders high-res 1080x1350 PNG cards
+//   3. Renders high-res 1080x1350 PNG cards with emoji & typography configuration
 //   4. Uploads to Supabase Storage with partial carousel recovery
 //   5. Persists parts, image_urls, and progress timestamps in DB
 // ---------------------------------------------------------------------------
@@ -29,12 +98,18 @@ export interface ImageGenerationOptions {
       slideIndex: number;
       totalSlides: number;
       createdAt?: string;
+      bodyFontSize?: number;
+      bodyLineHeight?: number;
     }
   ) => Promise<Buffer>;
   /** Force re-rendering and re-uploading even if existing objects exist */
   forceRegenerate?: boolean;
   /** Maximum number of carousel slides (clamped to 1-10, default: 10) */
   maxSlides?: number;
+  /** Optional body font size override */
+  bodyFontSize?: number;
+  /** Optional body line height override */
+  bodyLineHeight?: number;
 }
 
 export interface ImageGenerationPipelineResult {
@@ -198,9 +273,12 @@ export async function generateAndStoreConfessionImages(
     };
   }
 
-  // 2. Split text into deterministic slides (clamped to 1-10)
+  // 2. Censor abuse terms for published text (raw text stays in DB for admin/audit)
+  const publishedText = censorAbuseTerms(confession.text);
+
+  // 3. Split censored text into deterministic slides (clamped to 1-10)
   const clampedMaxSlides = Math.min(10, Math.max(1, options.maxSlides ?? 10));
-  const slides = splitConfessionText(confession.text, { maxSlides: clampedMaxSlides });
+  const slides = splitConfessionText(publishedText, { maxSlides: clampedMaxSlides });
   const totalSlides = slides.length;
 
   // Persist parts array early
@@ -219,6 +297,39 @@ export async function generateAndStoreConfessionImages(
   let reusedCount = 0;
   let newlyGeneratedCount = 0;
 
+  // Resolve typography settings
+  let bodyFontSize = options.bodyFontSize;
+  let bodyLineHeight = options.bodyLineHeight;
+
+  if (!bodyFontSize || !bodyLineHeight) {
+    try {
+      const runtimeSettings = await getRuntimeSettings({ supabaseClient: supabase });
+      if (!bodyFontSize && runtimeSettings.image_font_size) {
+        bodyFontSize = runtimeSettings.image_font_size;
+      }
+      if (!bodyLineHeight && runtimeSettings.image_line_height) {
+        bodyLineHeight = runtimeSettings.image_line_height;
+      }
+    } catch {
+      // Fall back to defaults defined in CANVAS_CONFIG
+    }
+  }
+
+  // Adaptive font size: if any slide doesn't fit at current size, drop to reduced size
+  const baseFontSize = bodyFontSize || CANVAS_CONFIG.typography.bodyFontSize;
+  const baseLineHeight = bodyLineHeight || CANVAS_CONFIG.typography.bodyLineHeight;
+  const REDUCED_FONT_SIZE = Math.max(baseFontSize - 2, 24); // 34 -> 32
+  const REDUCED_LINE_HEIGHT = Math.max(baseLineHeight - 2, 32); // 50 -> 48
+
+  const fitsAtBaseSize = checkAllSlidesFit(slides, baseFontSize, baseLineHeight);
+  if (!fitsAtBaseSize) {
+    bodyFontSize = REDUCED_FONT_SIZE;
+    bodyLineHeight = REDUCED_LINE_HEIGHT;
+  } else {
+    bodyFontSize = baseFontSize;
+    bodyLineHeight = baseLineHeight;
+  }
+
   // 3. Process each slide with partial recovery
   for (let i = 0; i < totalSlides; i++) {
     const slideText = slides[i];
@@ -235,6 +346,8 @@ export async function generateAndStoreConfessionImages(
             slideIndex: i,
             totalSlides,
             createdAt: confession.created_at,
+            bodyFontSize,
+            bodyLineHeight,
           });
         } else {
           pngBuffer = await renderConfessionSlide(slideText, {
@@ -242,6 +355,8 @@ export async function generateAndStoreConfessionImages(
             slideIndex: i,
             totalSlides,
             createdAt: confession.created_at,
+            bodyFontSize,
+            bodyLineHeight,
           });
         }
       } catch (renderError) {

@@ -391,8 +391,8 @@ export async function updateAdminConfession(
     if (trimmed.length < 10) {
       throw new Error('Confession text must be at least 10 characters.');
     }
-    if (trimmed.length > 2000) {
-      throw new Error('Confession text cannot exceed 2000 characters.');
+    if (trimmed.length > 5000) {
+      throw new Error('Confession text cannot exceed 5000 characters.');
     }
     payload.text = trimmed;
     payload.normalized_text = normalizeText(trimmed);
@@ -776,8 +776,8 @@ export async function createAdminConfession(
   if (!text || text.length < 10) {
     throw new Error('Confession text must be at least 10 characters.');
   }
-  if (text.length > 2000) {
-    throw new Error('Confession text cannot exceed 2000 characters.');
+  if (text.length > 5000) {
+    throw new Error('Confession text cannot exceed 5000 characters.');
   }
 
   const supabase = options.supabaseClient || getSupabaseAdmin();

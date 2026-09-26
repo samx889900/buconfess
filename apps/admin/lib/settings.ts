@@ -49,7 +49,7 @@ export const SETTINGS_ALLOWLIST: Record<string, SettingDefinition> = {
   max_daily_posts: {
     key: 'max_daily_posts',
     type: 'number',
-    defaultValue: 50,
+    defaultValue: 30,
     min: 1,
     max: 500,
     description: 'Maximum confessions allowed to be published per day (resets midnight IST, range: 1–500)',
@@ -105,6 +105,68 @@ export const SETTINGS_ALLOWLIST: Record<string, SettingDefinition> = {
     max: 1800,
     description: 'Lease TTL in seconds after which an unrenewed worker lease is considered stale (range: 60–1800s)',
   },
+  moderation_model_cascade: {
+    key: 'moderation_model_cascade',
+    type: 'string',
+    defaultValue: 'gemini-3.8-flash,gemini-3.7-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite',
+    description: 'Comma-separated Gemini model cascade order (must only contain allowlisted models)',
+  },
+  daily_posting_times: {
+    key: 'daily_posting_times',
+    type: 'string',
+    defaultValue: '20:00,22:00',
+    description: 'Comma-separated daily posting times in HH:MM 24-hr format (e.g. 20:00,22:00)',
+  },
+  daily_posting_time: {
+    key: 'daily_posting_time',
+    type: 'string',
+    defaultValue: '20:00',
+    description: 'Legacy daily posting time in HH:MM 24-hr format (superseded by daily_posting_times)',
+  },
+  posting_timezone: {
+    key: 'posting_timezone',
+    type: 'string',
+    defaultValue: 'Asia/Kolkata',
+    description: 'IANA Timezone for posting schedule (e.g. Asia/Kolkata)',
+  },
+  posts_per_slot: {
+    key: 'posts_per_slot',
+    type: 'number',
+    defaultValue: 15,
+    min: 1,
+    max: 100,
+    description: 'Maximum confessions to publish per individual posting slot (range: 1–100)',
+  },
+  image_font_size: {
+    key: 'image_font_size',
+    type: 'number',
+    defaultValue: 34,
+    min: 24,
+    max: 48,
+    description: 'Body font size in px for rendered confession cards (default: 34)',
+  },
+  image_line_height: {
+    key: 'image_line_height',
+    type: 'number',
+    defaultValue: 50,
+    min: 32,
+    max: 70,
+    description: 'Line height in px for rendered confession cards (default: 50)',
+  },
+  sheets_sync_enabled: {
+    key: 'sheets_sync_enabled',
+    type: 'boolean',
+    defaultValue: true,
+    description: 'Enable secondary Google Sheets sync after successful Instagram publish',
+  },
+  sheets_sync_max_retries: {
+    key: 'sheets_sync_max_retries',
+    type: 'number',
+    defaultValue: 3,
+    min: 1,
+    max: 10,
+    description: 'Maximum retries for failed secondary Google Sheets sync operations (range: 1–10)',
+  },
 };
 
 export interface SettingItem<T = unknown> {
@@ -159,6 +221,54 @@ export function validateSettingValue(def: SettingDefinition, rawValue: unknown):
         `Setting '${def.key}' must be one of [${def.allowedValues.join(', ')}], received: ${rawValue}`
       );
     }
+
+    // Specific validation for moderation_model_cascade
+    if (def.key === 'moderation_model_cascade') {
+      const allowed = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+      const models = rawValue.split(',').map((m) => m.trim()).filter(Boolean);
+      if (models.length === 0) {
+        throw new Error(`Setting 'moderation_model_cascade' must specify at least one valid Gemini model.`);
+      }
+      for (const model of models) {
+        if (!allowed.includes(model)) {
+          throw new Error(`Model '${model}' is not in the allowed Gemini models allowlist: [${allowed.join(', ')}]`);
+        }
+      }
+      return models.join(',');
+    }
+
+    // Specific validation for daily_posting_times (comma-separated HH:MM 24-hr format)
+    if (def.key === 'daily_posting_times') {
+      const times = rawValue.split(',').map((t: string) => t.trim()).filter(Boolean);
+      if (times.length === 0) {
+        throw new Error(`Setting 'daily_posting_times' must specify at least one time in HH:MM format.`);
+      }
+      for (const t of times) {
+        if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(t)) {
+          throw new Error(`Setting 'daily_posting_times' contains invalid time '${t}'. Must be 24-hour HH:MM format.`);
+        }
+      }
+      return times.join(',');
+    }
+
+    // Specific validation for daily_posting_time (HH:MM 24-hr format)
+    if (def.key === 'daily_posting_time') {
+      if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(rawValue.trim())) {
+        throw new Error(`Setting 'daily_posting_time' must be in 24-hour HH:MM format (e.g. 20:00). Got '${rawValue}'.`);
+      }
+      return rawValue.trim();
+    }
+
+    // Specific validation for posting_timezone
+    if (def.key === 'posting_timezone') {
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: rawValue.trim() });
+      } catch {
+        throw new Error(`Setting 'posting_timezone' must be a valid IANA timezone (received: ${rawValue})`);
+      }
+      return rawValue.trim();
+    }
+
     return rawValue;
   }
 
@@ -334,6 +444,14 @@ export interface RuntimeSettings {
   moderation_strictness: 'low' | 'medium' | 'high';
   heartbeat_timeout_sec: number;
   stale_lease_threshold_sec: number;
+  moderation_model_cascade: string;
+  daily_posting_times: string;
+  posting_timezone: string;
+  posts_per_slot: number;
+  image_font_size: number;
+  image_line_height: number;
+  sheets_sync_enabled: boolean;
+  sheets_sync_max_retries: number;
 }
 
 let _cachedRuntimeSettings: RuntimeSettings | null = null;
@@ -376,6 +494,14 @@ export async function getRuntimeSettings(
     moderation_strictness: SETTINGS_ALLOWLIST.moderation_strictness.defaultValue as 'low' | 'medium' | 'high',
     heartbeat_timeout_sec: SETTINGS_ALLOWLIST.heartbeat_timeout_sec.defaultValue as number,
     stale_lease_threshold_sec: SETTINGS_ALLOWLIST.stale_lease_threshold_sec.defaultValue as number,
+    moderation_model_cascade: SETTINGS_ALLOWLIST.moderation_model_cascade.defaultValue as string,
+    daily_posting_times: SETTINGS_ALLOWLIST.daily_posting_times.defaultValue as string,
+    posting_timezone: SETTINGS_ALLOWLIST.posting_timezone.defaultValue as string,
+    posts_per_slot: SETTINGS_ALLOWLIST.posts_per_slot.defaultValue as number,
+    image_font_size: SETTINGS_ALLOWLIST.image_font_size.defaultValue as number,
+    image_line_height: SETTINGS_ALLOWLIST.image_line_height.defaultValue as number,
+    sheets_sync_enabled: SETTINGS_ALLOWLIST.sheets_sync_enabled.defaultValue as boolean,
+    sheets_sync_max_retries: SETTINGS_ALLOWLIST.sheets_sync_max_retries.defaultValue as number,
   };
 
   try {

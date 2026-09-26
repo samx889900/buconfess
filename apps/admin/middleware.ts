@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken } from './lib/auth';
+import { verifyTokenAsync } from './lib/auth';
 
 /**
  * Public routes that do NOT require authentication.
@@ -24,15 +24,30 @@ export async function middleware(req: NextRequest) {
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/static') ||
-    PUBLIC_PATHS.includes(pathname)
+    pathname === '/favicon.ico' ||
+    pathname === '/icon.png' ||
+    pathname === '/logo.png'
   ) {
     return NextResponse.next();
   }
 
   // 2. Extract and verify the admin session cookie
   const token = req.cookies.get('admin_token')?.value;
-  const decoded = token ? verifyToken(token) : null;
+  const decoded = token ? await verifyTokenAsync(token) : null;
   const isAuthenticated = !!decoded;
+
+  // 3. Special handling for auth endpoints
+  if (pathname === '/api/admin/login') {
+    return NextResponse.next();
+  }
+
+  if (pathname === '/login') {
+    if (isAuthenticated) {
+      // Already authenticated admin: redirect directly to dashboard
+      return NextResponse.redirect(new URL('/', req.url));
+    }
+    return NextResponse.next();
+  }
 
   // 3. Handle unauthenticated requests
   if (!isAuthenticated) {

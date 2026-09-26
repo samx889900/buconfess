@@ -36,29 +36,41 @@ export interface AiPolicyVersions {
   instructionVersion: number;
 }
 
+export const ALLOWED_GEMINI_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.5-flash',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+] as const;
+
+export type AllowedGeminiModel = typeof ALLOWED_GEMINI_MODELS[number];
+
+export const DEFAULT_CASCADE: AllowedGeminiModel[] = [
+  'gemini-3.8-flash',
+  'gemini-3.7-flash',
+  'gemini-3.5-flash',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+];
+
 export const AI_CONFIG = {
-  // Model Cascade: Primary -> Fallback -> Final Fallback
-  models: {
-    primary: 'gemini-3.8-flash',
-    fallback: 'gemini-3.7-flash',
-    finalFallback: 'gemini-3.6-flash',
-  },
+  // Allowlist and Default Cascade Order
+  allowedModels: ALLOWED_GEMINI_MODELS,
+  defaultCascade: DEFAULT_CASCADE,
 
-  // Cascade execution order
-  cascadeOrder: [
-    'gemini-3.8-flash',
-    'gemini-3.7-flash',
-    'gemini-3.6-flash',
-  ] as const,
-
-  // Retry & Backoff Configuration
+  // Bounded Retry & Backoff Configuration
   retryPolicy: {
-    maxRetriesPerModel: 2,
-    baseDelayMs: 1000,       // 1 second base
-    maxDelayMs: 8000,        // 8 seconds cap
-    jitterFactor: 0.25,      // +/- 25% random jitter
-    timeoutMs: 15000,        // 15s per attempt
-  } satisfies RetryPolicyConfig,
+    timeoutMs: 10000,              // 10s timeout per attempt
+    maxRetriesForTimeout: 1,       // timeout -> max 1 retry -> fallback
+    maxRetriesFor503: 1,           // 503 -> max 1 short retry -> fallback
+    shortRetryDelay503Ms: 500,     // 500ms short backoff on 503
+    maxRetriesFor429: 1,           // 429 -> max 1 retry with bounded Retry-After -> fallback
+    maxRetryAfterMs: 3000,         // strict 3s upper bound on Retry-After
+    baseDelayMs: 500,
+    maxDelayMs: 3000,
+    jitterFactor: 0.2,
+  },
 
   // Deterministic Moderation Generation Hyperparameters
   generationConfig: {
@@ -75,8 +87,7 @@ export const AI_CONFIG = {
     instructionVersion: 1,
   } satisfies AiPolicyVersions,
 
-  // Retryable HTTP status codes / errors
-  retryableStatusCodes: new Set([429, 500, 502, 503, 504]),
+  // Retryable keywords
   retryableErrorKeywords: [
     'rate limit',
     'resource exhausted',
@@ -95,6 +106,9 @@ export const AI_CONFIG = {
     'etimedout',
   ],
 
+  // Retryable status codes
+  retryableStatusCodes: new Set([429, 500, 502, 503, 504]),
+
   // Deterministic (non-retryable) errors — do not retry, fail or route immediately
   deterministicErrorKeywords: [
     'invalid argument',
@@ -106,14 +120,95 @@ export const AI_CONFIG = {
     'invalid api key',
     'permission denied',
     'unauthenticated',
+    'not found',
+    'not_found',
+    'no longer available',
+    'model unavailable',
+    'model not found',
+    '400',
+    '401',
+    '403',
+    '404',
   ],
 };
+
+/**
+ * Checks if an error is a timeout.
+ */
+export function isTimeoutError(error: unknown): boolean {
+  if (!error) return false;
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return msg.includes('timeout') || msg.includes('deadline exceeded') || msg.includes('etimedout');
+}
+
+/**
+ * Checks if an error is a 503 / Service Unavailable / High demand error.
+ */
+export function is503Error(error: unknown): boolean {
+  if (!error) return false;
+  const errObj = error as Record<string, unknown>;
+  if (errObj.status === 503) return true;
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return msg.includes('503') || msg.includes('unavailable') || msg.includes('overloaded') || msg.includes('high demand');
+}
+
+/**
+ * Checks if an error is a 429 / Rate Limit error.
+ */
+export function is429Error(error: unknown): boolean {
+  if (!error) return false;
+  const errObj = error as Record<string, unknown>;
+  if (errObj.status === 429) return true;
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return msg.includes('429') || msg.includes('rate limit') || msg.includes('resource exhausted') || msg.includes('quota');
+}
+
+/**
+ * Checks if an error is deterministic (non-retryable 400/401/403/syntax error).
+ */
+export function isDeterministicError(error: unknown): boolean {
+  if (!error) return false;
+  const errObj = error as Record<string, unknown>;
+  const status = typeof errObj.status === 'number' ? errObj.status : undefined;
+  if (status && [400, 401, 403, 404].includes(status)) {
+    return true;
+  }
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  for (const det of AI_CONFIG.deterministicErrorKeywords) {
+    if (msg.includes(det)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Extracts Retry-After delay in milliseconds from an error object or headers.
+ */
+export function extractRetryAfterMs(error: unknown): number | null {
+  if (!error) return null;
+  const errObj = error as Record<string, unknown>;
+  const rawHeader =
+    errObj.retryAfter ||
+    (errObj.headers && typeof (errObj.headers as any).get === 'function'
+      ? (errObj.headers as any).get('retry-after')
+      : undefined);
+
+  if (rawHeader !== undefined && rawHeader !== null) {
+    const seconds = typeof rawHeader === 'number' ? rawHeader : parseFloat(String(rawHeader));
+    if (!isNaN(seconds) && seconds > 0) {
+      return Math.floor(seconds * 1000);
+    }
+  }
+  return null;
+}
 
 /**
  * Checks if an error is retryable based on status code or message.
  */
 export function isRetryableAiError(error: unknown): boolean {
   if (!error) return false;
+  if (isDeterministicError(error)) return false;
 
   const errObj = error as Record<string, unknown>;
   const status = typeof errObj.status === 'number' ? errObj.status : undefined;
@@ -127,14 +222,6 @@ export function isRetryableAiError(error: unknown): boolean {
     String(error)
   ).toString().toLowerCase();
 
-  // Check deterministic keywords first
-  for (const det of AI_CONFIG.deterministicErrorKeywords) {
-    if (message.includes(det)) {
-      return false;
-    }
-  }
-
-  // Check retryable keywords
   for (const kw of AI_CONFIG.retryableErrorKeywords) {
     if (message.includes(kw)) {
       return true;
@@ -156,7 +243,7 @@ export function calculateBackoffMs(
       ? retryAfterHeader
       : parseFloat(retryAfterHeader);
     if (!isNaN(seconds) && seconds > 0) {
-      return Math.min(seconds * 1000, AI_CONFIG.retryPolicy.maxDelayMs);
+      return Math.min(seconds * 1000, AI_CONFIG.retryPolicy.maxRetryAfterMs);
     }
   }
 

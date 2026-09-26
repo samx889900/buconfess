@@ -14,7 +14,7 @@ import { createHash, createHmac } from 'crypto';
 
 // --- Security & Validation Constants ---
 const MIN_TEXT_LENGTH = 10;
-const MAX_TEXT_LENGTH = 2000;
+const MAX_TEXT_LENGTH = 5000;
 const RATE_LIMIT_MAX = 3;                  // max 3 submissions per hour per IP
 const RATE_LIMIT_WINDOW_SECONDS = 3600;     // 1 hour window
 const COOLDOWN_SECONDS = 60;               // 60s cooldown between submissions
@@ -60,6 +60,18 @@ function getClientIp(req: NextRequest): string {
 
 export async function POST(req: NextRequest) {
   try {
+    // ── 0. Server Configuration Preflight Check ──
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !anonKey) {
+      if (!supabaseUrl) console.error('[CONFIG] Missing required production environment variable: SUPABASE_URL');
+      if (!anonKey) console.error('[CONFIG] Missing required production environment variable: NEXT_PUBLIC_SUPABASE_ANON_KEY');
+      return NextResponse.json(
+        { error: 'Submission is temporarily unavailable. Please try again.' },
+        { status: 503 }
+      );
+    }
+
     // ── 1. Parse JSON body ──
     let body: unknown;
     try {
@@ -231,7 +243,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('[SUBMISSION] Unexpected error:', error);
     return NextResponse.json(
-      { error: 'Server error' },
+      { error: 'Submission is temporarily unavailable. Please try again.' },
       { status: 500 }
     );
   }

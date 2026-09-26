@@ -134,7 +134,7 @@ export default function PlaygroundView() {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
           <span style={{ fontSize: '12px', color: '#666' }}>
-            {inputText.length} characters (min 10, max 2000)
+            {inputText.length} characters (min 10, max 5000)
           </span>
           <button
             onClick={() => handleTestRules()}

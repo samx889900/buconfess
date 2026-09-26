@@ -28,9 +28,9 @@ export function splitConfessionText(
   const maxChars = options.maxCharsPerSlide ?? CANVAS_CONFIG.limits.maxCharsPerSlide;
   const maxSlides = options.maxSlides ?? CANVAS_CONFIG.limits.maxSlides;
 
-  // 1. Sanitize: normalize zero-width characters and standard whitespace
+  // 1. Sanitize: normalize zero-width spaces while strictly preserving ZWJ (\u200D) and ZWNJ (\u200C) for emoji sequences
   const sanitized = rawText
-    .replace(/[\u200B-\u200D\uFEFF]/g, '') // remove invisible zero-width chars
+    .replace(/[\u200B\uFEFF]/g, '') // remove invisible zero-width space and BOM, preserving ZWJ
     .replace(/\r\n/g, '\n')
     .trim();
 

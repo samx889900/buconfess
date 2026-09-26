@@ -29,8 +29,9 @@ function LoginForm() {
       });
 
       if (res.ok) {
-        router.push(from);
-        router.refresh();
+        // Perform a hard navigation to guarantee that the browser loads the page
+        // with the newly set HTTP-only admin_token cookie, bypassing Next.js client router cache.
+        window.location.href = from;
       } else {
         const d = await res.json();
         setLoginError(d.error || 'Login failed');

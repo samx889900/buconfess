@@ -15,7 +15,7 @@ export default function ConfessionPortal({ text, setText, onSubmit, loading, err
   const cardRef = useRef<HTMLDivElement>(null);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const [isHovered, setIsHovered] = useState(false);
-  const MAX = 2000;
+  const MAX = 5000;
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!cardRef.current) return;

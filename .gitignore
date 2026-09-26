@@ -141,3 +141,7 @@ vite.config.ts.timestamp-*
 dev.db
 public/images/confessions
 setup.mjs
+dry-run-report.json
+apps/admin/dry-run-report.json
+test/*.png
+test/*.jpg

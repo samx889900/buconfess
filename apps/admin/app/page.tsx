@@ -4,8 +4,9 @@ import HealthView from '@/components/HealthView';
 import AuditView from '@/components/AuditView';
 import PlaygroundView from '@/components/PlaygroundView';
 import SettingsView from '@/components/SettingsView';
+import RecheckView from '@/components/RecheckView';
 
-export type AdminNavTab = 'queue' | 'health' | 'audit' | 'playground' | 'settings';
+export type AdminNavTab = 'queue' | 'recheck' | 'health' | 'audit' | 'playground' | 'settings';
 
 export type ConfessionStatus =
   | 'pending'
@@ -93,9 +94,13 @@ export default function AdminPage() {
         const res = await fetch('/api/admin/me');
         if (res.ok) {
           setLoggedIn(true);
+        } else {
+          window.location.href = '/login';
+          return;
         }
       } catch {
-        // Unauthenticated
+        window.location.href = '/login';
+        return;
       }
       setCheckingAuth(false);
     };
@@ -175,12 +180,16 @@ export default function AdminPage() {
   };
 
   const logout = async () => {
-    await fetch('/api/admin/logout', {
-      method: 'POST',
-      headers: { 'X-Admin-Action': '1' },
-    });
-    setLoggedIn(false);
-    setConfessions([]);
+    try {
+      await fetch('/api/admin/logout', {
+        method: 'POST',
+        headers: { 'X-Admin-Action': '1' },
+      });
+    } catch {
+      // Ignore network errors on logout
+    } finally {
+      window.location.href = '/login';
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -464,6 +473,7 @@ export default function AdminPage() {
         <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', gap: '4px', overflowX: 'auto' }}>
           {[
             { key: 'queue', label: 'Moderation Queue', icon: '📬', badge: counts.pending_review || 0 },
+            { key: 'recheck', label: 'Recheck', icon: '🔁' },
             { key: 'health', label: 'Health & Heartbeat', icon: '🛡️' },
             { key: 'audit', label: 'Audit Trail', icon: '📋' },
             { key: 'playground', label: 'Rules Playground', icon: '🧪' },
@@ -543,6 +553,7 @@ export default function AdminPage() {
         )}
 
         {/* Operational Views */}
+        {activeNavTab === 'recheck' && <RecheckView />}
         {activeNavTab === 'health' && <HealthView />}
         {activeNavTab === 'audit' && <AuditView />}
         {activeNavTab === 'playground' && <PlaygroundView />}
