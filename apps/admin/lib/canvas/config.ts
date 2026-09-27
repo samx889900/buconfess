@@ -31,7 +31,7 @@ export const CANVAS_CONFIG = {
 
   // Typography
   typography: {
-    fontFamily: 'Geist, "Noto Emoji", sans-serif',
+    fontFamily: 'Geist, "Noto Color Emoji", "Noto Emoji", sans-serif',
     bodyFontSize: 34,           // Moderately reduced by ~10.5% from 38
     bodyLineHeight: 50,         // Scaled line height from 56
     headerTitleSize: 28,

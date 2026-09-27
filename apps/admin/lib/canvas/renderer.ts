@@ -43,8 +43,12 @@ export function ensureFontRegistered(): void {
     }
   }
 
-  // 2. Bundled Noto Emoji font (SIL Open Font License)
+  // 2. Bundled Noto Color Emoji font (SIL Open Font License 1.1)
   const emojiPaths = [
+    path.resolve(process.cwd(), 'apps/admin/assets/fonts/NotoColorEmoji.ttf'),
+    path.resolve(process.cwd(), 'assets/fonts/NotoColorEmoji.ttf'),
+    path.resolve(__dirname, '../../assets/fonts/NotoColorEmoji.ttf'),
+    path.resolve(__dirname, '../../../assets/fonts/NotoColorEmoji.ttf'),
     path.resolve(process.cwd(), 'apps/admin/assets/fonts/NotoEmoji-Regular.ttf'),
     path.resolve(process.cwd(), 'assets/fonts/NotoEmoji-Regular.ttf'),
     path.resolve(__dirname, '../../assets/fonts/NotoEmoji-Regular.ttf'),
@@ -54,10 +58,11 @@ export function ensureFontRegistered(): void {
   for (const fp of emojiPaths) {
     if (fs.existsSync(fp)) {
       try {
+        GlobalFonts.registerFromPath(fp, 'Noto Color Emoji');
         GlobalFonts.registerFromPath(fp, 'Noto Emoji');
         break;
       } catch (err) {
-        console.warn(`[CANVAS] Could not register Noto Emoji font from ${fp}:`, err);
+        console.warn(`[CANVAS] Could not register Noto Color Emoji font from ${fp}:`, err);
       }
     }
   }

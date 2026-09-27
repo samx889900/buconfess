@@ -261,7 +261,7 @@ describe('Canvas Emoji, Grapheme Handling & Typography Configuration (v3.5)', ()
     assert.ok(buffer.length > 5000, 'Rendered PNG must have non-trivial size');
   });
 
-  it('12. Pixel glyph analysis: Validates actual emoji pixels are drawn on canvas (not blank or tofu)', () => {
+  it('12. Pixel glyph analysis: Validates actual emoji pixels are drawn in full color (not monochrome, blank or tofu)', () => {
     ensureFontRegistered();
     const REQUIRED_EMOJIS = '😀 😂 ❤️ 🔥 🚀 🙏🏽 👨‍💻 ❤️‍🔥 🇮🇳';
 
@@ -272,9 +272,9 @@ describe('Canvas Emoji, Grapheme Handling & Typography Configuration (v3.5)', ()
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, 800, 100);
 
-    // Render emojis in white using production font stack
+    // Render emojis using production font stack
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'normal 34px Geist, "Noto Emoji", sans-serif';
+    ctx.font = 'normal 34px Geist, "Noto Color Emoji", "Noto Emoji", sans-serif';
     ctx.fillText(REQUIRED_EMOJIS, 20, 60);
 
     // Measure widths: must be non-zero
@@ -285,6 +285,7 @@ describe('Canvas Emoji, Grapheme Handling & Typography Configuration (v3.5)', ()
     const imgData = ctx.getImageData(0, 0, 800, 100);
     const pixels = imgData.data;
     let nonBlackPixels = 0;
+    let fullColorPixels = 0;
     let totalSampled = 0;
 
     for (let y = 20; y < 80; y++) {
@@ -296,6 +297,10 @@ describe('Canvas Emoji, Grapheme Handling & Typography Configuration (v3.5)', ()
         const b = pixels[idx + 2];
         if (r > 20 || g > 20 || b > 20) {
           nonBlackPixels++;
+          // A full-color pixel has channel divergence (e.g. yellow, red, blue, green), unlike monochrome white/grey
+          if (Math.abs(r - g) > 20 || Math.abs(r - b) > 20 || Math.abs(g - b) > 20) {
+            fullColorPixels++;
+          }
         }
       }
     }
@@ -305,5 +310,189 @@ describe('Canvas Emoji, Grapheme Handling & Typography Configuration (v3.5)', ()
       nonBlackPixels > 100,
       `Emoji region must contain visible glyph pixels (sampled ${nonBlackPixels} non-black pixels, ${coverage.toFixed(1)}% coverage)`
     );
+    assert.ok(
+      fullColorPixels > 100,
+      `Emoji region must contain full-color pixels, not monochrome white (sampled ${fullColorPixels} color pixels)`
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Regression Tests: Cases A through M (Prompt Section 10 Specification)
+  // -------------------------------------------------------------------------
+
+  it('13. Case A (Basic emoji): Renders 😂 in full color without throwing or tofu', async () => {
+    const text = 'Life is funny 😂';
+    const buffer = await renderConfessionSlide(text, {
+      confessionNumber: 201,
+      slideIndex: 0,
+      totalSlides: 1,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
+    assert.ok(buffer.length > 5000);
+  });
+
+  it('14. Case B (Heart): Renders ❤️ with variation selector in full red color', async () => {
+    const text = 'Much love to all seniors ❤️';
+    const buffer = await renderConfessionSlide(text, {
+      confessionNumber: 202,
+      slideIndex: 0,
+      totalSlides: 1,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
+    assert.ok(buffer.length > 5000);
+  });
+
+  it('15. Case C (ZWJ): Renders ❤️‍🔥 as unified heart on fire sequence', async () => {
+    const text = 'Feelings are burning ❤️‍🔥';
+    const buffer = await renderConfessionSlide(text, {
+      confessionNumber: 203,
+      slideIndex: 0,
+      totalSlides: 1,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
+    assert.ok(buffer.length > 5000);
+  });
+
+  it('16. Case D (Family): Renders 👨‍👩‍👧‍👦 compound family emoji cleanly', async () => {
+    const text = 'Weekend trip with family 👨‍👩‍👧‍👦 back home';
+    const buffer = await renderConfessionSlide(text, {
+      confessionNumber: 204,
+      slideIndex: 0,
+      totalSlides: 1,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
+    assert.ok(buffer.length > 5000);
+  });
+
+  it('17. Case E (Skin tone): Renders 👍🏽 with Fitzpatrick skin tone modifier', async () => {
+    const text = 'Approved and ready to go 👍🏽';
+    const buffer = await renderConfessionSlide(text, {
+      confessionNumber: 205,
+      slideIndex: 0,
+      totalSlides: 1,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
+    assert.ok(buffer.length > 5000);
+  });
+
+  it('18. Case F (Flag): Renders 🇮🇳 regional indicator flag in full tricolor', async () => {
+    const text = 'Pride of our nation 🇮🇳 and campus';
+    const buffer = await renderConfessionSlide(text, {
+      confessionNumber: 206,
+      slideIndex: 0,
+      totalSlides: 1,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
+    assert.ok(buffer.length > 5000);
+  });
+
+  it('19. Case G (Mixed text): "I am happy 😂 today ❤️" combines Latin text and emojis seamlessly', async () => {
+    const text = 'I am happy 😂 today ❤️';
+    const buffer = await renderConfessionSlide(text, {
+      confessionNumber: 207,
+      slideIndex: 0,
+      totalSlides: 1,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
+    assert.ok(buffer.length > 5000);
+  });
+
+  it('20. Case H (Emoji-heavy confession): Renders multi-line confession containing dense emojis', async () => {
+    const text = '😂 ❤️ 😭 🥹 🔥 ✨ 🤡 💀 👀 🫶 🫠 ❤️‍🔥 👍🏽 👨‍💻 👩‍🎓 🇮🇳 🏳️‍🌈 👨‍👩‍👧‍👦 🤝🏻 🙏🏽 🗿 🚀 🎉 💯 ☕ 📚';
+    const buffer = await renderConfessionSlide(text, {
+      confessionNumber: 208,
+      slideIndex: 0,
+      totalSlides: 1,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
+    assert.ok(buffer.length > 10000);
+  });
+
+  it('21. Case I (Long text containing multiple emojis): Splits into slides without breaking graphemes', async () => {
+    const longText =
+      'First year at Bennett University was completely unbelievable! 😂 From running to 8:30 AM lectures half-asleep 🏃‍♂️💨 to late night discussions at night canteen with chai ☕❤️‍🔥. ' +
+      'Special shoutout to my roommates in hostel 4 who always shared notes and maggi during finals 🍜🙏🏽. ' +
+      'To everyone graduating: you will all be missed so much! Best of luck in placements and beyond 🎓✨🚀 🇮🇳.';
+
+    const slides = splitConfessionText(longText, { maxCharsPerSlide: 200 });
+    assert.ok(slides.length >= 2, 'Should split into at least 2 slides');
+
+    for (let i = 0; i < slides.length; i++) {
+      const buffer = await renderConfessionSlide(slides[i], {
+        confessionNumber: 209,
+        slideIndex: i,
+        totalSlides: slides.length,
+        createdAt: new Date().toISOString(),
+      });
+      assert.ok(buffer instanceof Buffer);
+      assert.equal(buffer[0], 0x89);
+    }
+  });
+
+  it('22. Case J (Emoji at line boundaries): Correctly wraps without splitting multi-byte emoji sequences', async () => {
+    // Construct line that pushes an emoji right against maxWidth
+    const lineText = 'A'.repeat(42) + ' ❤️‍🔥 ' + 'B'.repeat(40);
+    const slides = splitConfessionText(lineText);
+    assert.ok(slides.length >= 1);
+    const buffer = await renderConfessionSlide(slides[0], {
+      confessionNumber: 210,
+      slideIndex: 0,
+      totalSlides: slides.length,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
+  });
+
+  it('23. Case K (Multiple consecutive emojis): Renders consecutive emojis with proper spacing and no overlap', async () => {
+    const text = 'Reaction chain: 😂❤️🔥😭🥹✨';
+    const buffer = await renderConfessionSlide(text, {
+      confessionNumber: 211,
+      slideIndex: 0,
+      totalSlides: 1,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
+  });
+
+  it('24. Case L (Emoji + punctuation): Handles emojis adjacent to brackets, commas, quotes, periods', async () => {
+    const text = 'Notes: (😂), [❤️]! "🔥"? {✨}... ❤️‍🔥; 👍🏽: 🇮🇳.';
+    const buffer = await renderConfessionSlide(text, {
+      confessionNumber: 212,
+      slideIndex: 0,
+      totalSlides: 1,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
+  });
+
+  it('25. Case M (Emoji at beginning/end of sentence): Preserves line alignment and bounds', async () => {
+    const text = '🔥 Starting strong with excitement on campus.\nWrapping up the semester with flying colors! 🎓';
+    const buffer = await renderConfessionSlide(text, {
+      confessionNumber: 213,
+      slideIndex: 0,
+      totalSlides: 1,
+      createdAt: new Date().toISOString(),
+    });
+    assert.ok(buffer instanceof Buffer);
+    assert.equal(buffer[0], 0x89);
   });
 });

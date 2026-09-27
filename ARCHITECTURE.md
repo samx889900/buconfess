@@ -120,7 +120,7 @@ buconfess/
 │       ├── assets/fonts/           # Bundled typography assets
 │       │   ├── Geist-Regular.ttf   # Body & header text font
 │       │   ├── Geist-Bold.ttf      # Card numbering & branding font
-│       │   └── NotoEmoji-Regular.ttf # Unicode 15.0 vector emoji font (OFL 1.1)
+│       │   └── NotoColorEmoji.ttf  # Unicode 15.0 COLRv1 full-color vector emoji font (OFL 1.1)
 │       ├── components/             # React dashboard components (RecheckView, etc.)
 │       ├── lib/                    # Shared enterprise library
 │       │   ├── ai/                 # Gemini SDK moderation cascade & retry policy
@@ -287,10 +287,10 @@ Confessions are rendered into high-resolution, branded 1080x1350 PNG images (Ins
 
 - **Font Fallback Chain**:
   1. `Geist-Regular` / `Geist-Bold`: High-legibility typography for English, Hindi (Devanagari), and standard text.
-  2. `NotoEmoji-Regular`: Bundled Google Noto Emoji vector font (Unicode 15.0) providing complete coverage for:
-     - Smileys, people, skin-tone modifiers (`👍🏽`, `👩🏽‍💻`).
-     - Zero Width Joiner (ZWJ) sequences (`👨‍👩‍👧‍👦`, `❤️‍🔥`, `🏴‍☠️`).
-     - Symbols, flags, keycaps, and variation selectors.
+  2. `NotoColorEmoji`: Bundled Google Noto Color Emoji COLRv1 vector font (Unicode 15.0, SIL Open Font License 1.1) providing modern, full-color, high-resolution rendering for:
+     - Smileys, people, skin-tone modifiers (`👍🏽`, `👩🏽‍💻`, `🤝🏻`, `🫶`, `🫠`).
+     - Zero Width Joiner (ZWJ) sequences (`👨‍👩‍👧‍👦`, `❤️‍🔥`, `👨‍💻`, `👩‍🎓`).
+     - Symbols, flags (`🇮🇳`, `🏳️‍🌈`), keycaps, and variation selectors.
 - **Grapheme Cluster Segmentation**:
   Text is broken into graphemes using `Intl.Segmenter(undefined, { granularity: 'grapheme' })`. The regex in [splitter.ts](file:///c:/Users/vikra/Downloads/Projects/buconfess/apps/admin/lib/canvas/splitter.ts) explicitly preserves `\u200D` so multi-byte emojis are never split across word boundaries or slide splits.
 - **Slide Splitting & Pagination**:
