@@ -188,18 +188,39 @@ export function isDeterministicError(error: unknown): boolean {
 export function extractRetryAfterMs(error: unknown): number | null {
   if (!error) return null;
   const errObj = error as Record<string, unknown>;
-  const rawHeader =
-    errObj.retryAfter ||
-    (errObj.headers && typeof (errObj.headers as any).get === 'function'
-      ? (errObj.headers as any).get('retry-after')
-      : undefined);
 
-  if (rawHeader !== undefined && rawHeader !== null) {
-    const seconds = typeof rawHeader === 'number' ? rawHeader : parseFloat(String(rawHeader));
-    if (!isNaN(seconds) && seconds > 0) {
-      return Math.floor(seconds * 1000);
+  // 1. Direct property: errObj.retryAfter
+  if (errObj.retryAfter !== undefined && errObj.retryAfter !== null) {
+    const s = typeof errObj.retryAfter === 'number' ? errObj.retryAfter : parseFloat(String(errObj.retryAfter));
+    if (!isNaN(s) && s > 0) return Math.floor(s * 1000);
+  }
+
+  // 2. Check headers on errObj or errObj.response
+  const headersObj = errObj.headers || (errObj.response && (errObj.response as any).headers);
+  if (headersObj) {
+    let rawHeader: unknown;
+    if (typeof (headersObj as any).get === 'function') {
+      rawHeader = (headersObj as any).get('retry-after');
+    } else if (typeof headersObj === 'object') {
+      rawHeader = (headersObj as any)['retry-after'] || (headersObj as any)['Retry-After'];
+    }
+
+    if (rawHeader !== undefined && rawHeader !== null) {
+      const s = typeof rawHeader === 'number' ? rawHeader : parseFloat(String(rawHeader));
+      if (!isNaN(s) && s > 0) return Math.floor(s * 1000);
     }
   }
+
+  // 3. Parse from error message e.g. "retry after 19.29s" or "retryDelay: 2.5s"
+  const msg = errObj.message ? String(errObj.message) : String(error);
+  const match = msg.match(/retry\s*(?:after|delay)?[:\s]+([0-9]+(?:\.[0-9]+)?)\s*s?/i);
+  if (match && match[1]) {
+    const s = parseFloat(match[1]);
+    if (!isNaN(s) && s > 0) {
+      return Math.floor(s * 1000);
+    }
+  }
+
   return null;
 }
 

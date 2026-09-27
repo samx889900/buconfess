@@ -8,7 +8,7 @@ import { TOURSBU_CONFIG } from '../config/toursbu';
 // ToursBU Reusable Promotional Components (BU Confessions v3.5)
 // ---------------------------------------------------------------------------
 // Destinations:
-//   - Main site: https://tours.buconfess.in/ (or NEXT_PUBLIC_TOURSBU_URL)
+//   - Main link / WhatsApp group: https://chat.whatsapp.com/ITAMUjJZiIBGPzOZ4baW2g (or NEXT_PUBLIC_TOURSBU_URL)
 //   - WhatsApp group: NEXT_PUBLIC_TOURSBU_WHATSAPP_URL
 //
 // Designed to be non-intrusive, responsive, and visually harmonious with

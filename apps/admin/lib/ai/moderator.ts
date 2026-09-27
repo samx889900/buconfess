@@ -13,6 +13,11 @@ import { checkDeterministicRules } from './rules';
 import { SYSTEM_MODERATION_INSTRUCTION, buildModerationUserPrompt, computePromptHash } from './prompt';
 import { getSecrets } from '../secrets';
 import { getRuntimeSettings } from '../settings';
+import {
+  geminiCredentialPool,
+  GeminiCredentialPool,
+  classifyGeminiError,
+} from './credentialPool';
 
 // ---------------------------------------------------------------------------
 // Gemini Model Cascade & AI Moderator (BU Confessions v3.5)
@@ -48,6 +53,8 @@ export interface ModerateOptions {
   confessionId?: number | string;
   /** Optional explicit model cascade override */
   modelCascade?: readonly string[];
+  /** Optional credential pool override for testing multi-project failover */
+  credentialPool?: GeminiCredentialPool;
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -86,39 +93,8 @@ export async function moderateConfession(
     }
   }
 
-  // ── 2. Initialize Gemini Client ──
-  let ai: GoogleGenAI | null = null;
-  if (!mockClient) {
-    let apiKey = '';
-    try {
-      apiKey = getSecrets().geminiApiKey;
-    } catch {
-      apiKey = process.env.GEMINI_API_KEY || '';
-    }
-
-    if (!apiKey) {
-      console.warn(`[MODERATION] confession_id=${confessionId} GEMINI_API_KEY is not configured — routing to pending_review`);
-      const promptHash = computePromptHash(buildModerationUserPrompt(text));
-      return {
-        verdict: 'pending_review',
-        decision_reason: 'GEMINI_API_KEY not configured on server (routed to human review).',
-        model_confidence: 0,
-        matched_rules: ['SYS_NO_API_KEY'],
-        policy_level: 5,
-        flags: ['system_warning'],
-        model_id: 'none',
-        model_version: 'none',
-        ai_policy_version: AI_CONFIG.versions.aiPolicyVersion,
-        instruction_version: AI_CONFIG.versions.instructionVersion,
-        prompt_hash: promptHash,
-        generation_config: {},
-        fallback_used: true,
-        deterministic_filter_used: false,
-      };
-    }
-
-    ai = new GoogleGenAI({ apiKey });
-  }
+  // ── 2. Resolve Credential Pool & Model Cascade ──
+  const pool = options.credentialPool || geminiCredentialPool;
 
   // ── 3. Resolve Model Cascade with Allowlist ──
   let configuredCascade: readonly string[] = AI_CONFIG.defaultCascade;
@@ -177,6 +153,30 @@ export async function moderateConfession(
     };
   }
 
+  // If mockClient is not provided, verify credential pool availability
+  if (!mockClient) {
+    const slots = pool.getSlots();
+    if (slots.length === 0) {
+      console.warn(`[MODERATION] confession_id=${confessionId} Zero Gemini API keys configured in pool — routing to pending_review`);
+      return {
+        verdict: 'pending_review',
+        decision_reason: 'GEMINI_API_KEY not configured on server (routed to human review).',
+        model_confidence: 0,
+        matched_rules: ['SYS_NO_API_KEY'],
+        policy_level: 5,
+        flags: ['system_warning'],
+        model_id: 'none',
+        model_version: 'none',
+        ai_policy_version: AI_CONFIG.versions.aiPolicyVersion,
+        instruction_version: AI_CONFIG.versions.instructionVersion,
+        prompt_hash: promptHash,
+        generation_config: {},
+        fallback_used: true,
+        deterministic_filter_used: false,
+      };
+    }
+  }
+
   let lastError: Error | null = null;
 
   // ── 4. Execute Model Cascade ──
@@ -184,14 +184,16 @@ export async function moderateConfession(
     const modelName = activeCascade[modelIndex];
     const isPrimary = modelIndex === 0;
     const fallbackUsed = !isPrimary;
-    let modelAttempt = 0;
 
-    while (true) {
-      const attemptStartTime = Date.now();
-      try {
-        let rawResponseText = '';
+    // Path A: Mock client for isolated unit testing
+    if (mockClient) {
+      let modelAttempt = 0;
+      let rawResponseText = '';
+      let shouldCascade = false;
 
-        if (mockClient) {
+      while (!shouldCascade) {
+        const attemptStartTime = Date.now();
+        try {
           const resp = await mockClient.generateContent({
             model: modelName,
             contents: userPrompt,
@@ -201,8 +203,113 @@ export async function moderateConfession(
             },
           });
           rawResponseText = typeof resp.text === 'function' ? resp.text() : resp.text || '';
-        } else if (ai) {
-          // Wrap API call with timeout
+          const latencyMs = Date.now() - attemptStartTime;
+
+          const validation = validateModerationOutput(rawResponseText);
+          if (!validation.success || !validation.data) {
+            console.warn(
+              `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=invalid_schema action=${modelAttempt === 0 ? 'retry' : 'cascade'} error="${validation.error}"`
+            );
+            if (modelAttempt === 0) {
+              modelAttempt++;
+              await sleepFn(AI_CONFIG.retryPolicy.baseDelayMs);
+              continue;
+            }
+            shouldCascade = true;
+            break;
+          }
+
+          return {
+            ...validation.data,
+            model_id: modelName,
+            model_version: 'v3.5',
+            ai_policy_version: AI_CONFIG.versions.aiPolicyVersion,
+            instruction_version: AI_CONFIG.versions.instructionVersion,
+            prompt_hash: promptHash,
+            generation_config: AI_CONFIG.generationConfig,
+            fallback_used: fallbackUsed,
+            deterministic_filter_used: false,
+          };
+        } catch (err) {
+          const latencyMs = Date.now() - attemptStartTime;
+          lastError = err instanceof Error ? err : new Error(String(err));
+
+          if (isDeterministicError(lastError)) {
+            console.warn(
+              `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=deterministic_error action=cascade error="${lastError.message}"`
+            );
+            shouldCascade = true;
+            break;
+          } else if (isTimeoutError(lastError)) {
+            if (modelAttempt < AI_CONFIG.retryPolicy.maxRetriesForTimeout) {
+              modelAttempt++;
+              await sleepFn(AI_CONFIG.retryPolicy.baseDelayMs);
+              continue;
+            }
+            shouldCascade = true;
+            break;
+          } else if (is503Error(lastError)) {
+            if (modelAttempt < AI_CONFIG.retryPolicy.maxRetriesFor503) {
+              modelAttempt++;
+              await sleepFn(AI_CONFIG.retryPolicy.shortRetryDelay503Ms);
+              continue;
+            }
+            shouldCascade = true;
+            break;
+          } else if (is429Error(lastError)) {
+            const retryAfterMs = extractRetryAfterMs(lastError);
+            if (retryAfterMs !== null && retryAfterMs > AI_CONFIG.retryPolicy.maxRetryAfterMs) {
+              shouldCascade = true;
+              break;
+            }
+            if (modelAttempt < AI_CONFIG.retryPolicy.maxRetriesFor429) {
+              const delay = retryAfterMs !== null ? retryAfterMs : AI_CONFIG.retryPolicy.baseDelayMs;
+              modelAttempt++;
+              await sleepFn(delay);
+              continue;
+            }
+            shouldCascade = true;
+            break;
+          } else if (isRetryableAiError(lastError) && modelAttempt < 1) {
+            modelAttempt++;
+            await sleepFn(AI_CONFIG.retryPolicy.baseDelayMs);
+            continue;
+          } else {
+            shouldCascade = true;
+            break;
+          }
+        }
+      }
+
+      if (!shouldCascade) {
+        // If not cascaded and didn't return, model finished
+        continue;
+      }
+      continue;
+    }
+
+    // Path B: Live multi-project credential pool execution
+    const availableSlots = pool.getAvailableSlots();
+    if (availableSlots.length === 0) {
+      console.warn(
+        `[MODERATION] confession_id=${confessionId} All Gemini project credentials are in cooldown or unavailable.`
+      );
+      break;
+    }
+
+    let modelUnsupportedAcrossAllProjects = false;
+
+    for (const slot of availableSlots) {
+      const leased = pool.leaseSlot(slot.id);
+      if (!leased) continue;
+
+      const ai = new GoogleGenAI({ apiKey: leased.apiKey });
+      let modelAttempt = 0;
+      let slotFinished = false;
+
+      while (!slotFinished) {
+        const attemptStartTime = Date.now();
+        try {
           const generatePromise = ai.models.generateContent({
             model: modelName,
             contents: userPrompt,
@@ -220,126 +327,118 @@ export async function moderateConfession(
           );
 
           const response = await Promise.race([generatePromise, timeoutPromise]);
-          rawResponseText = response.text
+          const rawResponseText = response.text
             ? typeof response.text === 'function'
               ? (response.text as () => string)()
               : response.text
             : '';
-        }
 
-        const latencyMs = Date.now() - attemptStartTime;
+          const latencyMs = Date.now() - attemptStartTime;
 
-        // ── 5. Validate Structured JSON with Zod ──
-        const validation = validateModerationOutput(rawResponseText);
-        if (!validation.success || !validation.data) {
-          console.warn(
-            `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=invalid_schema action=${modelAttempt === 0 ? 'retry' : 'cascade'} error="${validation.error}"`
+          // Validate Structured JSON
+          const validation = validateModerationOutput(rawResponseText);
+          if (!validation.success || !validation.data) {
+            console.warn(
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} latency_ms=${latencyMs} result=invalid_schema error="${validation.error}"`
+            );
+            if (modelAttempt === 0) {
+              modelAttempt++;
+              await sleepFn(AI_CONFIG.retryPolicy.baseDelayMs);
+              continue;
+            }
+            pool.releaseSlot(slot.id, { success: false, error: new Error(validation.error || 'Invalid JSON') });
+            slotFinished = true;
+            break;
+          }
+
+          // Successful moderation!
+          pool.releaseSlot(slot.id, { success: true });
+          console.log(
+            `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} latency_ms=${latencyMs} result=success verdict=${validation.data.verdict}`
           );
 
+          return {
+            ...validation.data,
+            model_id: modelName,
+            model_version: 'v3.5',
+            ai_policy_version: AI_CONFIG.versions.aiPolicyVersion,
+            instruction_version: AI_CONFIG.versions.instructionVersion,
+            prompt_hash: promptHash,
+            generation_config: AI_CONFIG.generationConfig,
+            fallback_used: fallbackUsed,
+            deterministic_filter_used: false,
+          };
+        } catch (err) {
+          const latencyMs = Date.now() - attemptStartTime;
+          lastError = err instanceof Error ? err : new Error(String(err));
+          const classification = classifyGeminiError(lastError);
+
+          // 404: Model not found on Google's API -> cascade model immediately across all projects
+          if (classification === 'MODEL_NOT_FOUND') {
+            console.warn(
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} result=404_model_not_found action=cascade_model error="${lastError.message}"`
+            );
+            pool.releaseSlot(slot.id, { success: false, error: lastError });
+            modelUnsupportedAcrossAllProjects = true;
+            slotFinished = true;
+            break;
+          }
+
+          // Daily quota exhausted (429 RPD): project enters cooldown, failover immediately to next project on same model
+          if (classification === 'DAILY_QUOTA_EXHAUSTED') {
+            console.warn(
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} result=daily_quota_exhausted action=failover_project error="${lastError.message}"`
+            );
+            pool.releaseSlot(slot.id, { success: false, error: lastError });
+            slotFinished = true;
+            break;
+          }
+
+          // Authentication or Permission failure: permanent project error, failover to next project on same model
+          if (classification === 'AUTHENTICATION' || classification === 'PERMISSION') {
+            console.warn(
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} result=${classification} action=failover_project error="${lastError.message}"`
+            );
+            pool.releaseSlot(slot.id, { success: false, error: lastError });
+            slotFinished = true;
+            break;
+          }
+
+          // Transient errors (503 / 429 RPM / Timeout): max 1 short retry before failing over
           if (modelAttempt === 0) {
             modelAttempt++;
-            await sleepFn(AI_CONFIG.retryPolicy.baseDelayMs);
+            let delayMs = AI_CONFIG.retryPolicy.baseDelayMs;
+            if (classification === 'SERVICE_UNAVAILABLE') {
+              delayMs = AI_CONFIG.retryPolicy.shortRetryDelay503Ms;
+            } else if (classification === 'RATE_LIMIT_TRANSIENT') {
+              const retryAfter = extractRetryAfterMs(lastError);
+              if (retryAfter !== null && retryAfter > AI_CONFIG.retryPolicy.maxRetryAfterMs) {
+                // Retry-After > 3s: failover to next credential immediately
+                pool.releaseSlot(slot.id, { success: false, error: lastError });
+                slotFinished = true;
+                break;
+              }
+              delayMs = retryAfter ?? AI_CONFIG.retryPolicy.baseDelayMs;
+            }
+            console.warn(
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} result=transient_${classification} action=retry delay_ms=${delayMs}`
+            );
+            await sleepFn(delayMs);
             continue;
+          } else {
+            // Retries exhausted for this project on this model: failover to next project
+            console.warn(
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} result=retry_exhausted action=failover_project error="${lastError.message}"`
+            );
+            pool.releaseSlot(slot.id, { success: false, error: lastError });
+            slotFinished = true;
+            break;
           }
-          break; // Cascade to next model
         }
+      }
 
-        // Successfully validated structured response!
-        console.log(
-          `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=success action=return verdict=${validation.data.verdict}`
-        );
-
-        return {
-          ...validation.data,
-          model_id: modelName,
-          model_version: 'v3.5',
-          ai_policy_version: AI_CONFIG.versions.aiPolicyVersion,
-          instruction_version: AI_CONFIG.versions.instructionVersion,
-          prompt_hash: promptHash,
-          generation_config: AI_CONFIG.generationConfig,
-          fallback_used: fallbackUsed,
-          deterministic_filter_used: false,
-        };
-      } catch (err) {
-        const latencyMs = Date.now() - attemptStartTime;
-        lastError = err instanceof Error ? err : new Error(String(err));
-
-        // 1. Deterministic error (400, 401, 403, bad request, syntax): 0 retries -> cascade
-        if (isDeterministicError(lastError)) {
-          console.warn(
-            `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=deterministic_error action=cascade error="${lastError.message}"`
-          );
-          break;
-        } else if (isTimeoutError(lastError)) {
-          // 2. Timeout error: max 1 retry -> fallback
-          if (modelAttempt < AI_CONFIG.retryPolicy.maxRetriesForTimeout) {
-            console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=timeout action=retry error="${lastError.message}"`
-            );
-            modelAttempt++;
-            await sleepFn(AI_CONFIG.retryPolicy.baseDelayMs);
-            continue;
-          } else {
-            console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=timeout_exhausted action=cascade error="${lastError.message}"`
-            );
-            break;
-          }
-        } else if (is503Error(lastError)) {
-          // 3. 503 Service Unavailable / High Demand: max 1 short retry (500ms) -> fallback
-          if (modelAttempt < AI_CONFIG.retryPolicy.maxRetriesFor503) {
-            console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=503 action=short_retry delay_ms=${AI_CONFIG.retryPolicy.shortRetryDelay503Ms} error="${lastError.message}"`
-            );
-            modelAttempt++;
-            await sleepFn(AI_CONFIG.retryPolicy.shortRetryDelay503Ms);
-            continue;
-          } else {
-            console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=503_exhausted action=cascade error="${lastError.message}"`
-            );
-            break;
-          }
-        } else if (is429Error(lastError)) {
-          // 4. 429 Rate Limit: respect Retry-After with strict upper bound (3s max) -> fallback
-          const retryAfterMs = extractRetryAfterMs(lastError);
-
-          // If Retry-After exists and exceeds strict 3s bound, cascade immediately without waiting
-          if (retryAfterMs !== null && retryAfterMs > AI_CONFIG.retryPolicy.maxRetryAfterMs) {
-            console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=429 action=retry_after_exceeded delay_ms=${retryAfterMs} > max=${AI_CONFIG.retryPolicy.maxRetryAfterMs} -> cascade`
-            );
-            break;
-          }
-
-          if (modelAttempt < AI_CONFIG.retryPolicy.maxRetriesFor429) {
-            const delay = retryAfterMs !== null ? retryAfterMs : AI_CONFIG.retryPolicy.baseDelayMs;
-            console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=429 action=retry delay_ms=${delay} error="${lastError.message}"`
-            );
-            modelAttempt++;
-            await sleepFn(delay);
-            continue;
-          } else {
-            console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=429_exhausted action=cascade error="${lastError.message}"`
-            );
-            break;
-          }
-        } else if (isRetryableAiError(lastError) && modelAttempt < 1) {
-          // 5. Other retryable errors (500/502/504/network): max 1 retry
-          console.warn(
-            `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=retryable_error action=retry error="${lastError.message}"`
-          );
-          modelAttempt++;
-          await sleepFn(AI_CONFIG.retryPolicy.baseDelayMs);
-          continue;
-        } else {
-          console.warn(
-            `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=unhandled_error action=cascade error="${lastError.message}"`
-          );
-          break;
-        }
+      if (modelUnsupportedAcrossAllProjects) {
+        break; // cascade to next model in activeCascade
       }
     }
   }

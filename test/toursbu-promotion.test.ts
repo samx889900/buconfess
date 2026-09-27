@@ -4,7 +4,10 @@ import { TOURSBU_CONFIG } from '../apps/public/app/config/toursbu';
 
 describe('ToursBU Promotion Configuration & Link Safety (v3.5)', () => {
   it('1. Default URLs are properly configured to primary destinations', () => {
-    assert.equal(TOURSBU_CONFIG.url, 'https://tours.buconfess.in');
+    assert.equal(
+      TOURSBU_CONFIG.url,
+      'https://chat.whatsapp.com/ITAMUjJZiIBGPzOZ4baW2g'
+    );
     assert.ok(TOURSBU_CONFIG.whatsappUrl.includes('whatsapp.com'));
   });
 

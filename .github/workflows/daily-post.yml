@@ -1,11 +1,15 @@
 name: Daily Confession Posting
 on:
   schedule:
-    - cron: '30 13 * * *'
+    - cron: '30 18,0,6,12 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
         description: 'Execute dry run without publishing or modifying database'
+        type: boolean
+        default: false
+      force_run:
+        description: 'Bypass schedule window check for manual diagnostic run'
         type: boolean
         default: false
 
@@ -29,9 +33,14 @@ jobs:
       - run: npx tsx scripts/run-agent.ts
         env:
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          FORCE_RUN: ${{ inputs.force_run || 'false' }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_1: ${{ secrets.GEMINI_API_KEY_1 }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
           INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
           INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}

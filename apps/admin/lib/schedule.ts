@@ -43,7 +43,7 @@ export function parsePostingTimes(timesStr: string): string[] {
  */
 export function evaluatePostingWindow(
   now: Date,
-  targetTimeStr: string = '20:00,22:00',
+  targetTimeStr: string = '00:00,06:00,12:00,18:00',
   timezone: string = 'Asia/Kolkata',
   windowMinutesBefore: number = 5,
   windowMinutesAfter: number = 25
@@ -64,8 +64,9 @@ export function evaluatePostingWindow(
 
   // Get current date and time in the configured timezone
   let parts: Intl.DateTimeFormatPart[] = [];
+  let formatter: Intl.DateTimeFormat;
   try {
-    const formatter = new Intl.DateTimeFormat('en-US', {
+    formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,
       year: 'numeric',
       month: '2-digit',
@@ -123,9 +124,18 @@ export function evaluatePostingWindow(
 
     const isWithinWindow = diffMinutes >= -windowMinutesBefore && diffMinutes <= windowMinutesAfter;
     if (isWithinWindow) {
+      // Normalize target date for midnight rollover (e.g. 23:55 for 00:00 slot attributes to upcoming calendar day)
+      const targetDateObj = new Date(now.getTime() - diffMinutes * 60 * 1000);
+      const targetParts = formatter.formatToParts(targetDateObj);
+      const targetPartMap: Record<string, string> = {};
+      for (const p of targetParts) {
+        targetPartMap[p.type] = p.value;
+      }
+      const normalizedPostingDate = `${targetPartMap.year}-${targetPartMap.month}-${targetPartMap.day}`;
+
       return {
         isWithinWindow: true,
-        postingDate,
+        postingDate: normalizedPostingDate,
         currentLocalTime,
         targetTime: slot,
         scheduleSlot: slot,

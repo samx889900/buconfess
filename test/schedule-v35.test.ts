@@ -220,12 +220,12 @@ describe('Schedule & Durable Daily Slot Management (v3.5)', () => {
   });
 
   it('11. Settings validation: posts_per_slot and max_daily_posts defaults and bounds', () => {
-    assert.equal(SETTINGS_ALLOWLIST.posts_per_slot.defaultValue, 15);
+    assert.equal(SETTINGS_ALLOWLIST.posts_per_slot.defaultValue, 8);
     assert.equal(SETTINGS_ALLOWLIST.max_daily_posts.defaultValue, 30);
     assert.equal(SETTINGS_ALLOWLIST.max_per_batch.defaultValue, 10);
 
     const slotDef = SETTINGS_ALLOWLIST.posts_per_slot;
-    assert.equal(validateSettingValue(slotDef, 15), 15);
+    assert.equal(validateSettingValue(slotDef, 8), 8);
     assert.equal(validateSettingValue(slotDef, '20'), 20);
 
     const maxDailyDef = SETTINGS_ALLOWLIST.max_daily_posts;

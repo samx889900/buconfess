@@ -229,6 +229,65 @@ export async function runAgent(options: RunAgentOptions = {}): Promise<RunAgentR
       console.log('[AGENT] Instagram access token preflight verified successfully.');
     }
 
+    // ── Master Switch: posting_enabled ──
+    if (!settings.posting_enabled) {
+      postingSkippedReason = 'posting_disabled';
+      console.log('[AGENT] posting_enabled is false — skipping automated publication. Approved confessions remain untouched.');
+      return {
+        success: true,
+        runUuid,
+        dryRun: isDryRun,
+        moderatedCount: 0,
+        approvedCount: 0,
+        rejectedCount: 0,
+        pendingReviewCount: 0,
+        postedCount: 0,
+        failedPostingCount: 0,
+        postingSkippedReason: 'posting_disabled',
+      };
+    }
+
+    // ── Schedule Window Pre-Check (Scheduled Invocations) ──
+    // Manual diagnostic / force execution requires an explicit flag:
+    //   1. options.forceRun === true
+    //   2. process.env.FORCE_RUN === 'true' (e.g. workflow_dispatch input force_run: true)
+    //   3. CLI args: --force, --force-run, --manual
+    // Note: workflow_dispatch alone does NOT bypass the window unless force_run (FORCE_RUN=true) is explicitly provided.
+    const forceRun = Boolean(
+      options.forceRun ??
+        (process.env.FORCE_RUN === 'true' ||
+          (typeof process !== 'undefined' &&
+            process.argv &&
+            (process.argv.includes('--force') || process.argv.includes('--force-run') || process.argv.includes('--manual'))))
+    );
+
+    const skipScheduleCheck = Boolean(options.skipScheduleCheck || options.skipLock);
+
+    const windowCheck = evaluatePostingWindow(
+      new Date(),
+      settings.daily_posting_times,
+      settings.posting_timezone
+    );
+
+    // If scheduled invocation is outside all valid posting windows, exit cleanly:
+    // Do NOT claim slot, do NOT moderate confessions, do NOT consume Gemini quota, do NOT publish.
+    if (!isDryRun && !forceRun && !skipScheduleCheck && !windowCheck.isWithinWindow) {
+      postingSkippedReason = 'outside_schedule_window';
+      console.log(`[SCHEDULE] ${windowCheck.reason} Scheduled run is outside valid slot window. Halting execution cleanly (zero moderation, zero publishing).`);
+      return {
+        success: true,
+        runUuid,
+        dryRun: isDryRun,
+        moderatedCount: 0,
+        approvedCount: 0,
+        rejectedCount: 0,
+        pendingReviewCount: 0,
+        postedCount: 0,
+        failedPostingCount: 0,
+        postingSkippedReason: 'outside_schedule_window',
+      };
+    }
+
     // ── Phase C: AI Moderation Pipeline (Queue Draining) ──
     const processedPendingIds = new Set<number>();
     while (true) {
@@ -280,35 +339,22 @@ export async function runAgent(options: RunAgentOptions = {}): Promise<RunAgentR
     // ── Phase D & E: Image Generation & Instagram Publication (Queue Draining) ──
     slotRunId = undefined;
 
-    const forceRun = Boolean(
-      options.forceRun ??
-        (process.env.FORCE_RUN === 'true' ||
-          process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' ||
-          (typeof process !== 'undefined' &&
-            process.argv &&
-            (process.argv.includes('--force') || process.argv.includes('--force-run') || process.argv.includes('--manual'))))
-    );
-
-    const skipScheduleCheck = Boolean(options.skipScheduleCheck || options.skipLock);
-
-    const windowCheck = evaluatePostingWindow(
-      new Date(),
-      settings.daily_posting_times,
-      settings.posting_timezone
-    );
-
     if (!settings.posting_enabled) {
       postingSkippedReason = 'posting_disabled';
       console.log('[AGENT] posting_enabled is false — skipping automated publication. Approved confessions remain untouched.');
     } else if (!settings.auto_publish_approved) {
       postingSkippedReason = 'auto_publish_disabled';
       console.log('[AGENT] auto_publish_approved is false — skipping automated publication of approved confessions.');
-    } else if (!isDryRun && !forceRun && !skipScheduleCheck && !windowCheck.isWithinWindow) {
-      postingSkippedReason = 'outside_posting_window';
-      console.log(`[SCHEDULE] ${windowCheck.reason} Skipping automated publication.`);
     } else {
       if (!isDryRun && !skipScheduleCheck) {
-        const triggerSource = forceRun ? 'manual_dispatch' : 'scheduled';
+        const isWorkflowDispatch = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
+        const isCli =
+          typeof process !== 'undefined' &&
+          process.argv &&
+          (process.argv.includes('--force') || process.argv.includes('--manual') || process.argv.includes('--force-run'));
+        const triggerSource = forceRun
+          ? (isCli ? 'cli' : 'manual_dispatch')
+          : (isWorkflowDispatch ? 'manual_dispatch' : 'scheduled');
         const claim = await claimDailyPostingSlot(
           windowCheck.postingDate,
           windowCheck.scheduleSlot,

@@ -38,6 +38,39 @@ interface HealthData {
     postingCount: number;
     totalStale: number;
   };
+  schedule?: {
+    activeSchedule: string;
+    timezone: string;
+    isWithinWindow: boolean;
+    currentSlot: string;
+    diffMinutes: number;
+    todayPosted: number;
+    maxDailyPosts: number;
+    remainingDailyQuota: number;
+    postsPerSlot: number;
+    latestSlotRun: {
+      id: number;
+      postingDate: string;
+      scheduleSlot: string;
+      status: string;
+      startedAt: string;
+      completedAt: string | null;
+      publishedCount: number;
+      errorMessage: string | null;
+    } | null;
+  };
+  geminiPool?: {
+    slots: {
+      id: string;
+      available: boolean;
+      unavailableReason: string | null;
+      cooldownUntil: number | null;
+      consecutiveFailures: number;
+      lastSuccessAt: number | null;
+      activeInFlight: number;
+      totalRequests: number;
+    }[];
+  };
 }
 
 export default function HealthView() {
@@ -255,6 +288,167 @@ export default function HealthView() {
           <p style={{ margin: 0, fontSize: '11px', color: '#666' }}>{data.subsystems.instagram.details}</p>
         </div>
       </div>
+
+      {/* Schedule & 4-Slot Automation Telemetry */}
+      {data.schedule && (
+        <div style={{ background: '#141414', border: '1px solid #282828', borderRadius: '14px', padding: '22px', marginBottom: '28px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '800' }}>⏱️ Multi-Slot Schedule & Daily Cap Telemetry</h3>
+                <span
+                  style={{
+                    background: data.schedule.isWithinWindow ? '#064e3b' : '#374151',
+                    color: data.schedule.isWithinWindow ? '#6ee7b7' : '#9ca3af',
+                    border: `1px solid ${data.schedule.isWithinWindow ? '#059669' : '#4b5563'}`,
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: '800',
+                  }}
+                >
+                  {data.schedule.isWithinWindow ? `IN WINDOW (${data.schedule.currentSlot})` : 'OUTSIDE WINDOW'}
+                </span>
+              </div>
+              <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#888' }}>
+                Configured 6-hour posting intervals evaluated in <strong>{data.schedule.timezone}</strong>.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {data.schedule.activeSchedule.split(',').map((slotTime) => {
+                const isCurrent = data.schedule?.currentSlot === slotTime.trim();
+                return (
+                  <span
+                    key={slotTime}
+                    style={{
+                      background: isCurrent ? '#1e3a5f' : '#1f2937',
+                      color: isCurrent ? '#93c5fd' : '#9ca3af',
+                      border: `1px solid ${isCurrent ? '#3b82f6' : '#374151'}`,
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontFamily: 'monospace',
+                      fontWeight: isCurrent ? '700' : '400',
+                    }}
+                  >
+                    {slotTime.trim()}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', background: '#0d0d0d', padding: '16px', borderRadius: '10px', border: '1px solid #222', marginBottom: '14px' }}>
+            <div>
+              <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', fontWeight: '700' }}>Calendar-Day Posts (IST)</div>
+              <div style={{ fontSize: '15px', fontWeight: '700', color: '#ddd', marginTop: '2px' }}>
+                {data.schedule.todayPosted} / {data.schedule.maxDailyPosts}{' '}
+                <span style={{ fontSize: '12px', color: '#888', fontWeight: '400' }}>
+                  ({data.schedule.remainingDailyQuota} remaining)
+                </span>
+              </div>
+              <div style={{ width: '100%', height: '6px', background: '#222', borderRadius: '3px', marginTop: '6px', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    width: `${Math.min(100, (data.schedule.todayPosted / data.schedule.maxDailyPosts) * 100)}%`,
+                    height: '100%',
+                    background: data.schedule.todayPosted >= data.schedule.maxDailyPosts ? '#ef4444' : '#10b981',
+                    borderRadius: '3px',
+                  }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', fontWeight: '700' }}>Per-Slot Quota Cap</div>
+              <div style={{ fontSize: '15px', fontWeight: '700', color: '#ddd', marginTop: '2px' }}>
+                {data.schedule.postsPerSlot} posts / slot
+              </div>
+              <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>
+                Drains queue up to 8 eligible per window
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', fontWeight: '700' }}>Last Scheduled Run</div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: '#ddd', marginTop: '2px' }}>
+                {data.schedule.latestSlotRun
+                  ? `${data.schedule.latestSlotRun.postingDate} @ ${data.schedule.latestSlotRun.scheduleSlot}`
+                  : 'No runs recorded'}
+              </div>
+              <div style={{ fontSize: '11px', color: data.schedule.latestSlotRun?.status === 'completed' ? '#6ee7b7' : '#fcd34d', marginTop: '4px' }}>
+                {data.schedule.latestSlotRun ? `Status: ${data.schedule.latestSlotRun.status} (${data.schedule.latestSlotRun.publishedCount} posted)` : 'Awaiting first slot'}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Gemini Multi-Project Credential Pool Telemetry */}
+      {data.geminiPool && data.geminiPool.slots.length > 0 && (
+        <div style={{ background: '#141414', border: '1px solid #282828', borderRadius: '14px', padding: '22px', marginBottom: '28px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+            <div>
+              <h3 style={{ margin: '0 0 4px 0', fontSize: '16px', fontWeight: '800' }}>⚡ Gemini Multi-Project Credential Pool</h3>
+              <p style={{ margin: 0, fontSize: '12px', color: '#888' }}>
+                Rate limits are isolated per Google Cloud project. Automatic failover and Pacific midnight RPD cooldown active.
+              </p>
+            </div>
+            <span style={{ fontSize: '11px', color: '#10b981', background: '#064e3b', border: '1px solid #059669', padding: '2px 8px', borderRadius: '6px', fontWeight: '700' }}>
+              🔒 ZERO SECRETS EXPOSED
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+            {data.geminiPool.slots.map((slot) => {
+              const inCooldown = slot.cooldownUntil && slot.cooldownUntil > Date.now();
+              const cooldownLeftMin = inCooldown ? Math.ceil((slot.cooldownUntil! - Date.now()) / (60 * 1000)) : 0;
+              return (
+                <div
+                  key={slot.id}
+                  style={{
+                    background: '#0d0d0d',
+                    border: `1px solid ${slot.available ? '#22c55e40' : inCooldown ? '#f59e0b40' : '#ef444440'}`,
+                    borderRadius: '10px',
+                    padding: '14px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontFamily: 'monospace', fontWeight: '700', fontSize: '13px', color: '#ddd' }}>
+                      {slot.id}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        fontWeight: '800',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        background: slot.available ? '#064e3b' : inCooldown ? '#451a03' : '#450a0a',
+                        color: slot.available ? '#6ee7b7' : inCooldown ? '#fcd34d' : '#fca5a5',
+                      }}
+                    >
+                      {slot.available ? 'AVAILABLE' : inCooldown ? `COOLDOWN (${cooldownLeftMin}m)` : 'UNAVAILABLE'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#888', display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span>Total Requests:</span>
+                    <strong style={{ color: '#ddd' }}>{slot.totalRequests}</strong>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#888', display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Consecutive Errors:</span>
+                    <strong style={{ color: slot.consecutiveFailures > 0 ? '#ef4444' : '#ddd' }}>{slot.consecutiveFailures}</strong>
+                  </div>
+                  {slot.unavailableReason && !slot.available && (
+                    <div style={{ marginTop: '8px', fontSize: '11px', color: '#f87171', background: '#2b0000', padding: '4px 6px', borderRadius: '4px' }}>
+                      {slot.unavailableReason}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Worker Lease & Heartbeat Section */}
       <div style={{ background: '#141414', border: '1px solid #282828', borderRadius: '14px', padding: '22px', marginBottom: '28px' }}>

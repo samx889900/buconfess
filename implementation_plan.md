@@ -631,3 +631,343 @@ IP_HASH_SECRET=                     # Secret salt for HMAC-SHA256 IP hashing
 GITHUB_TOKEN=
 GITHUB_REPO=                        # owner/repo format
 ```
+
+---
+
+## Phase 11: Gemini Multi-Project Credential Pool & Quota-Aware Failover
+
+### 1. Architectural Goal & Context
+Google Cloud enforces Gemini API rate limits and quotas **per Google Cloud Project**, not per API key. Multiple API keys pointing to the same Google Cloud project share the identical quota pool.
+To achieve genuine multi-project resilience, BUConfess supports 3–4 independently configured Gemini credentials backed by distinct, legitimately authorized Google Cloud projects:
+* `GEMINI_API_KEY_1` ➔ Google Cloud Project A
+* `GEMINI_API_KEY_2` ➔ Google Cloud Project B
+* `GEMINI_API_KEY_3` ➔ Google Cloud Project C
+* `GEMINI_API_KEY_4` ➔ Google Cloud Project D
+* *Backward Compatibility:* If only `GEMINI_API_KEY` is present, it is mapped to `project-1` transparently.
+
+> [!SECURITY]
+> **Credential Protection Invariants:**
+> - API keys are NEVER exposed to the browser.
+> - API keys are NEVER logged or printed to console.
+> - API keys are NEVER stored in the database.
+> - API keys are strictly loaded from environment/GitHub Actions secrets into private memory closures.
+
+### 2. Runtime Credential Pool Abstraction
+A dedicated singleton abstraction (`apps/admin/lib/ai/credentialPool.ts`) manages project-level health, in-flight tracking, and cooldown states:
+```ts
+export type GeminiErrorClassification =
+  | 'AUTHENTICATION'          // 401 / Invalid API key
+  | 'PERMISSION'              // 403 / Billing disabled / API not enabled
+  | 'MODEL_NOT_FOUND'        // 404 / Model retired or not found
+  | 'INVALID_REQUEST'         // 400 / Bad request, malformed prompt
+  | 'RATE_LIMIT_TRANSIENT'    // 429 RPM/TPM short-term throttling
+  | 'DAILY_QUOTA_EXHAUSTED'   // 429 RPD daily requests exhausted (PerDay quotaId)
+  | 'SERVICE_UNAVAILABLE'     // 503 Overloaded, high demand
+  | 'TIMEOUT'                 // Request deadline exceeded (10s)
+  | 'UNKNOWN';
+
+export interface CredentialPoolSlot {
+  id: string;                 // Non-secret identifier e.g. "project-1"
+  available: boolean;
+  unavailableReason: string | null;
+  cooldownUntil: number | null; // Epoch milliseconds
+  lastErrorType: GeminiErrorClassification | null;
+  consecutiveFailures: number;
+  lastSuccessAt: number | null;
+  activeInFlight: number;
+  totalRequests: number;
+}
+```
+
+### 3. Error Classification Engine
+All errors from `@google/genai` are mapped through `classifyGeminiError(error)`:
+1. **`AUTHENTICATION` (401):** Marks credential permanently unavailable for the process lifetime.
+2. **`PERMISSION` (403):** Marks credential unavailable for the process lifetime (avoids spamming disabled billing projects).
+3. **`MODEL_NOT_FOUND` (404):** Does NOT disable the credential; indicates the model is unavailable on this SDK/API. Cascades immediately to the next model.
+4. **`INVALID_REQUEST` (400):** Non-retryable input failure.
+5. **`RATE_LIMIT_TRANSIENT` (429):** Short-term throttling (e.g. `retryDelay < 60s` or RPM/TPM violations). Bounded exponential backoff with jitter (max 1 retry up to 3s). If still failing, failover to next project.
+6. **`DAILY_QUOTA_EXHAUSTED` (429):** Error message or `QuotaFailure.violations.quotaId` contains `PerDay` or indicates daily exhaustion. Sets `cooldownUntil` to next reset (midnight Pacific Time or 12h cooldown), marks `available = false`, and **immediately fails over to the next project without retrying the exhausted project**.
+7. **`SERVICE_UNAVAILABLE` (503):** Bounded 1 short retry (500ms); if persistent, failover to next project.
+8. **`TIMEOUT` (10s):** Bounded 1 retry; if persistent, failover to next project.
+
+### 4. Smart Model Cascade × Credential Matrix
+The exact allowlisted model cascade order is strictly preserved:
+`gemini-3.8-flash ➔ gemini-3.7-flash ➔ gemini-3.5-flash ➔ gemini-2.5-flash ➔ gemini-2.5-flash-lite ➔ pending_review`
+
+Credential failover operates **within** each model step before falling back to the next model:
+```
+For each Model M in Cascade:
+  AvailableCredentials = pool.getAvailableCredentials()
+  If AvailableCredentials is empty:
+    Continue to Model M+1
+
+  For each Credential C in AvailableCredentials:
+    1. Lease Credential C (round-robin / least-busy)
+    2. Execute Model M using Credential C (10s timeout)
+    3. Evaluate Result:
+       - SUCCESS ➔ Return verdict, update stats, STOP cascade immediately.
+       - DAILY_QUOTA_EXHAUSTED ➔ Mark C in daily cooldown, failover immediately to next Credential on Model M.
+       - TRANSIENT (503 / RPM 429 / Timeout) ➔ Bounded retry; if still failing, failover to next Credential on Model M.
+       - MODEL_NOT_FOUND (404) ➔ Model unavailable on all projects; break credential loop, proceed to Model M+1.
+       - AUTH / PERM ➔ Mark C permanently unavailable, failover to next Credential on Model M.
+
+If all models fail across all credentials:
+  ➔ Return verdict: 'pending_review' (Fail-Safe Invariant: Never auto-approve or auto-publish unmoderated content)
+```
+
+### 5. Concurrency & Anti-Hammering Protection
+* **Round-Robin Leasing:** Multi-confession queue draining distributes consecutive moderation requests across healthy projects in rotation (`project-1 ➔ project-2 ➔ project-3 ➔ ...`).
+* **Active In-Flight Tracking:** Prevents concurrent promises from overwhelming a single project's RPM limit.
+
+---
+
+## Phase 12: Multi-Slot Agent Scheduling — Every 6 Hours
+
+### 1. Requirement & Schedule Specification
+BUConfess operates on a multi-slot schedule running **every 6 hours**, providing **4 scheduled agent opportunities per day**:
+
+| Slot | Scheduled Time (Asia/Kolkata) | UTC Equivalent | Purpose & Role |
+| :---: | :---: | :---: | :--- |
+| **Slot 1** | **00:00 IST** (Midnight) | 18:30 UTC (prev. day) | Midnight calendar boundary / first daily processing slot; clears late-night confessions submitted during peak evening hours |
+| **Slot 2** | **06:00 IST** (Morning) | 00:30 UTC | Morning confession intake, early campus announcement queue |
+| **Slot 3** | **12:00 IST** (Noon) | 06:30 UTC | Mid-day backlog clearance, lunch-hour queue draining |
+| **Slot 4** | **18:00 IST** (Evening) | 12:30 UTC | Peak evening campus posting & moderation |
+
+* **Timezone:** `Asia/Kolkata` (Indian Standard Time, IST).
+* **Core Distinction:** This represents **4 scheduled agent execution opportunities**, NOT 4 independent daily publication quotas.
+
+### 2. Complete 12-Step Queue-Draining Workflow Per Slot
+Each scheduled slot triggers a complete, autonomous agent lifecycle rather than merely publishing a fixed batch of confessions:
+1. **Acquire durable agent lock:** Distributed lease in `agent_locks` with a 2-minute heartbeat to guarantee single-runner execution.
+2. **Evaluate schedule slot window & determine whether this slot has already been executed:**
+   - For scheduled runs, check whether current time is within `[targetTime - 5m, targetTime + 25m]` for any configured slot (`00:00, 06:00, 12:00, 18:00 IST`).
+   - If outside every valid slot window: exit safely with a skipped status (`postingSkippedReason = 'outside_schedule_window'`). Do NOT claim a slot, and do NOT perform scheduled queue moderation, preventing accidental Gemini quota consumption from delayed or spurious invocations.
+   - If inside a valid window: atomically claim `(posting_date, schedule_slot)` in `daily_posting_runs`. If already claimed or running, abort cleanly without duplicate processing (`postingSkippedReason = 'slot_already_claimed'`).
+3. **Read current runtime settings:** Fetch dynamic configuration from Supabase `settings` table (`posting_enabled`, `max_daily_posts`, `posts_per_slot`, `max_per_batch`, etc.).
+4. **Moderate eligible pending confessions:** Drain pending confessions through the Gemini Multi-Project Credential Pool (Phase C).
+5. **Process approved confessions:** Select eligible approved confessions in FIFO order (`ORDER BY created_at ASC`), respecting per-slot and daily quotas.
+6. **Generate images:** Render canvas slides with Noto Color Emoji fallback and upload to Supabase storage.
+7. **Publish eligible posts:** Create Instagram container(s), write pre-API attempt record, dispatch publication, and observe `min_delay_between_posts_sec`.
+8. **Verify publication:** Query Instagram Graph API for live status and permalink verification.
+9. **Perform decoupled Google Sheets synchronization:** Synchronize posted confession records to the external Google Sheet asynchronously without blocking confession status.
+10. **Continue draining eligible work until a safe stopping condition:** Loop in batches of `max_per_batch` until:
+    - Queue is exhausted (no more eligible pending or approved confessions).
+    - Current slot publication cap is reached (`slotCount >= posts_per_slot`).
+    - Global daily publication cap is reached (`todayCount >= max_daily_posts`).
+    - Agent approaches the 25-minute runtime safety budget (`MAX_RUNTIME_MS`).
+    - Quota cooldown / emergency halt triggered.
+11. **Record slot completion:** Finalize the row in `daily_posting_runs` with `status: 'completed'` (or `'failed'`), `published_count`, `completed_at`, and error diagnostics if any.
+12. **Release durable lock:** Clear active lease in `agent_locks` and terminate runner process cleanly with exit code 0.
+
+### 3. Separation of Batch, Slot, and Daily Limits
+
+The architecture strictly distinguishes three distinct operational boundaries:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  max_daily_posts = 30 (Hard Global Calendar-Day Cap (00:00–23:59 IST)) │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │  posts_per_slot = 8  (Per-Slot Allocation Cap)                   │  │
+│  │  ┌────────────────────────────────────────────────────────────┐  │  │
+│  │  │  max_per_batch = 10  (DB Query Chunk Size)                 │  │  │
+│  │  └────────────────────────────────────────────────────────────┘  │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+1. **`max_per_batch` (Default: 10):**
+   - Purely a database chunking and memory efficiency parameter.
+   - **Critical Invariant:** Hitting `max_per_batch` MUST NOT terminate the agent run. The worker drains the queue in consecutive batches until a real stopping condition is reached.
+2. **`posts_per_slot` (Proposed Default: 8):**
+   - The maximum number of confessions that can be published during a single 6-hour slot.
+   - Provides a theoretical maximum of `8 × 4 = 32` publications per day.
+   - Fully configurable at runtime via the Admin Settings dashboard.
+3. **`max_daily_posts` (Hard Cap: 30):**
+   - The global hard ceiling on Instagram posts across the entire calendar day (resets midnight IST).
+   - **Global Cross-Slot Enforcement:**
+     - Slot 1 (00:00): Publishes up to 8 posts (Total today: 8, Remaining daily: 22)
+     - Slot 2 (06:00): Publishes up to 8 posts (Total today: 16, Remaining daily: 14)
+     - Slot 3 (12:00): Publishes up to 8 posts (Total today: 24, Remaining daily: 6)
+     - Slot 4 (18:00): Publishes up to **6 posts** (Capped at `min(8, 30 - 24) = 6`). Total today: 30.
+     - The fourth slot NEVER exceeds the 30-post daily ceiling.
+
+### 4. Durable Slot Identity & Duplicate Invocation Protection
+* **Durable Unique Key:** The database enforces `CONSTRAINT daily_posting_runs_date_slot_key UNIQUE (posting_date, schedule_slot)`.
+  - Four distinct slot identities per date: `(2026-09-27, '00:00')`, `(2026-09-27, '06:00')`, `(2026-09-27, '12:00')`, `(2026-09-27, '18:00')`.
+* **Atomic Claim Invariant:** When an agent begins Phase D, it performs an atomic INSERT into `daily_posting_runs`. If GitHub Actions invokes the same slot twice (due to retry, delayed runner, duplicate heartbeat, or manual trigger), the second attempt hits PostgreSQL error `23505` (unique violation) and gracefully aborts publishing with `postingSkippedReason = 'slot_already_claimed'`.
+* **Zero Cross-Slot Pollution:** A failure in Slot 2 (`status = 'failed'`) does not block Slot 3 from executing independently at 12:00. Each slot has its own row and state.
+* **Failure Recording:** If a catastrophic error occurs during slot processing, `finalizeDailyPostingSlot(slotRunId, postedCount, supabase, errorMessage)` records `status = 'failed'`, records the exact error stack, and preserves `published_count` so daily quota accounting remains 100% accurate.
+
+### 5. GitHub Actions Heartbeat & Window Calculation
+* **Workflow Cron:**
+  `.github/workflows/daily-post.yml`:
+  ```yaml
+  on:
+    schedule:
+      - cron: '30 18,0,6,12 * * *'
+  ```
+  - `18:30 UTC` ➔ `00:00 IST` (Slot 1 — Midnight)
+  - `00:30 UTC` ➔ `06:00 IST` (Slot 2 — Morning)
+  - `06:30 UTC` ➔ `12:00 IST` (Slot 3 — Midday)
+  - `12:30 UTC` ➔ `18:00 IST` (Slot 4 — Evening)
+* **Deterministic Window Calculation ([schedule.ts](file:///c:/Users/vikra/Downloads/Projects/buconfess/apps/admin/lib/schedule.ts)):**
+  - Evaluated in `Asia/Kolkata` with a 30-minute matching window: `[target - 5 minutes, target + 25 minutes]`.
+  - Slot 00:00: `23:55 – 00:25 IST`.
+  - Slot 06:00: `05:55 – 06:25 IST`.
+  - Slot 12:00: `11:55 – 12:25 IST`.
+  - Slot 18:00: `17:55 – 18:25 IST`.
+  - **Runner Delay Tolerance:** GitHub Actions free runners occasionally queue before spinning up. The +25 minute window ensures that even a 20-minute runner startup delay still executes within the legitimate slot window.
+  - **Midnight Date Rollover Normalization:** When the 00:00 slot is triggered slightly early (e.g. at 23:55–23:59 IST on day $D$), the calendar date in IST is still day $D$. The scheduler normalizes `postingDate` to day $D+1$ when matching the upcoming `00:00` slot so that the run is correctly attributed to the new calendar day's 00:00 slot.
+  - **Outside-Window Safety (Scheduled Invocations):** If a SCHEDULED invocation runs outside every valid slot window (e.g. at 03:00 IST due to delayed runner or transient scheduler event):
+    - Do not claim a scheduled posting slot.
+    - Do not perform scheduled queue moderation merely because the workflow was invoked.
+    - Exit safely with a skipped status (`postingSkippedReason = 'outside_schedule_window'`).
+    - This strictly prevents accidental Gemini quota consumption from duplicate, delayed, or spurious workflow invocations outside a legitimate slot.
+    - *Separation of Concerns:* If a separately authorized manual/admin diagnostic invocation exists (e.g. `workflow_dispatch` with administrative flags), it may explicitly execute moderation according to its own administrative parameters, completely decoupled from scheduled execution.
+
+### 6. Backlog Latency Reduction
+* **Target Backlog Latency:** Approximately ≤6 hours when scheduled execution, moderation capacity, and publication capacity are available.
+* **Frequency vs. Guarantee:** While the four-slot schedule dramatically improves opportunity frequency compared to a single daily run (where a confession submitted at 19:30 IST waited ~23.5 hours for the next 19:00 run), it does NOT guarantee processing within 6 hours.
+* **Potential Latency Blockers:**
+  - Gemini daily quota exhaustion across projects (RPD).
+  - All credential projects unavailable or in cooldown.
+  - Flagging for manual human admin review (`pending_review`).
+  - Reaching the global daily publication ceiling (`max_daily_posts = 30`).
+  - Reaching the per-slot publication limit (`posts_per_slot = 8`).
+  - Instagram API outage, transient network failure, or platform rate limiting.
+  - Exceptionally large confession queues exceeding the 25-minute runtime safety budget.
+
+### 7. Dry-Run Mode Invariants
+* Dry-run mode (`--dry-run` or `DRY_RUN=true`) evaluates all four slots, tests queue draining, validates Gemini moderation, and simulates Instagram containers.
+* **Safety Invariant:** Dry runs **never** insert or mutate records in `daily_posting_runs`, never claim slots, never draw sequence numbers, and never publish to Instagram.
+
+### 8. Admin Dashboard Observability
+The Admin Dashboard (`apps/admin`) exposes real-time slot and capacity telemetry:
+* **Schedule Banner:** Shows active schedule (`00:00, 06:00, 12:00, 18:00 Asia/Kolkata`).
+* **Slot Telemetry Panel:**
+  - Active / Current slot window status.
+  - Next scheduled slot time.
+  - Last completed slot and outcome (`completed` / `failed` / `recovered`).
+  - Today's published count and remaining capacity (`X / 30 posted, 30 - X remaining`).
+  - Current slot publication count and remaining slot capacity (`Y / 8 posted, 8 - Y remaining`).
+  - Active agent worker lock status (`agent_locks` holder, lease start, and heartbeat expiry).
+  - Failed/recovered slot diagnostics (error messages, retry count, affected records).
+  - Gemini credential pool health breakdown per project (`project-1: available`, `project-2: daily_quota cooldown (3h left)`).
+  - **Zero Secret Exposure:** Strictly displays masked project handles (`project-1`, `project-2`); never displays API keys, headers, or raw tokens.
+
+### 9. Database & Settings Specification (Zero Schema Migrations)
+* **Pre-Existing Infrastructure:** The table `public.daily_posting_runs` created in `003_v35_production_upgrade.sql` already provides the necessary schema:
+  - `posting_date date NOT NULL`
+  - `schedule_slot text NOT NULL`
+  - `CONSTRAINT daily_posting_runs_date_slot_key UNIQUE (posting_date, schedule_slot)`
+  - `status text NOT NULL DEFAULT 'running'` (check: `status IN ('running', 'completed', 'failed')`)
+  - `trigger_source text NOT NULL DEFAULT 'scheduled'`
+  - `started_at timestamptz NOT NULL`
+  - `completed_at timestamptz`
+  - `published_count integer DEFAULT 0`
+  - `error_message text`
+* **Zero Schema Migrations Required:** Because `daily_posting_runs` already natively supports arbitrary slot identifiers (e.g. `'00:00'`, `'06:00'`, `'12:00'`, `'18:00'`), NO new database tables, columns, or migration files are required.
+* **Settings Seed Defaults:** The only database updates needed are default value updates in the existing `settings` table:
+  - `daily_posting_times`: update default value from `'20:00,22:00'` to `'00:00,06:00,12:00,18:00'`.
+  - `posts_per_slot`: update default value from `15` to `8`.
+  - `max_daily_posts`: remains `30` (strict hard cap).
+  - `timezone`: remains `'Asia/Kolkata'`.
+
+### 10. Deep Architectural Interaction: Multi-Slot Scheduling × Gemini Multi-Project Failover
+
+The Multi-Slot Scheduler (Component B) and the Gemini Multi-Project Credential Pool (Component A) are tightly integrated through durable, non-interfering invariants:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│               COMPONENT B: 6-HOUR MULTI-SLOT SCHEDULER                 │
+│         (00:00 IST ➔ 06:00 IST ➔ 12:00 IST ➔ 18:00 IST)               │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ triggers 4x daily
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│             PHASE C: MODERATION WORKER (QUEUE DRAINING)                │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ leases credentials per request
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│             COMPONENT A: GEMINI MULTI-PROJECT CREDENTIAL POOL          │
+│    Project 1 (Cloud A) ➔ Project 2 (Cloud B) ➔ Project 3 (Cloud C)     │
+│                                                                        │
+│   Cascade: 3.8 Flash ➔ 3.7 Flash ➔ 3.5 Flash ➔ 2.5 Flash ➔ 2.5 Lite   │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+           ┌────────────────────────┴────────────────────────┐
+           ▼                                                 ▼
+   [Quota Available]                             [All Quotas Exhausted]
+Moderate ➔ Approved / Rejected             Status = 'pending_review'
+Proceed to Phase D & E                     HALT Moderation for this Slot
+(Subject to 8/slot, 30/day)                NO auto-approval. NO bypass.
+                                           Next slot (in 6h) retries.
+```
+
+1. **Strict Model Cascade Preservation:**
+   The allowlisted sequence `3.8 Flash ➔ 3.7 Flash ➔ 3.5 Flash ➔ 2.5 Flash ➔ 2.5 Flash Lite ➔ pending_review` remains immutable. Component B never skips or alters this hierarchy.
+2. **Intra-Model Credential Failover:**
+   Credential pool rotation occurs *within* each model step. If Project A encounters a 429 daily quota on `gemini-3.8-flash`, Project B is immediately attempted on `gemini-3.8-flash` before cascading down to `gemini-3.7-flash`.
+3. **Cross-Slot Cooldown Persistence:**
+   - When a project encounters a daily quota error (`DAILY_QUOTA_EXHAUSTED`), its slot enters cooldown until Google's Pacific midnight quota reset (`cooldownUntil`).
+   - If Project A enters daily cooldown at 00:30 IST during Slot 1, Slot 2 (06:00 IST) and Slot 3 (12:00 IST) inspect the pool, observe that Project A is still cooled down, and automatically skip Project A, routing moderation to Project B and Project C.
+   - When the Pacific reset occurs (~12:30 or 13:30 IST), Project A automatically reactivates for Slot 4 (18:00 IST).
+4. **Complete Fail-Safe Guarantee:**
+   If all configured Google Cloud projects exhaust their quotas during a slot:
+   - Moderation halts safely.
+   - Unmoderated records remain strictly `pending_review`.
+   - Under ZERO circumstances are confessions auto-approved or posted without AI verification.
+   - Slot publishing still proceeds for *previously approved* confessions (up to limits).
+5. **Backlog Latency Improvement:**
+   The 6-hour interval targets approximately ≤6 hours latency when execution, moderation, and publishing capacity are available. Records flagged `pending_review` due to transient upstream 503 or transient rate limits in Slot 1 can be cleanly re-evaluated in Slot 2.
+6. **Decoupled Quota Accounting:**
+   Gemini API quotas, Instagram publishing quotas, and database batch limits operate on completely separate accounting planes. Running 4 agent opportunities per day distributes moderation and publication smoothly without increasing Instagram risk.
+
+---
+
+## Phase 13: Comprehensive Master Test Plan
+
+The implementation plan mandates **38 automated unit & integration tests** executed via Node test runner (`npm test`):
+
+### A. Gemini Credential Pool & Failover Tests (16 Tests)
+1. **Single credential success:** Validates moderation succeeds with single configured key.
+2. **Credential A quota exhausted ➔ B succeeds:** Proves daily quota failure on Project A immediately attempts Project B on the same model without retrying A.
+3. **A + B exhausted ➔ C succeeds:** Verifies multi-stage failover across 3 projects.
+4. **All credentials exhausted ➔ `pending_review`:** Proves fail-safe invariant when all available projects are exhausted.
+5. **503 High Demand bounded retry:** Proves 1 short retry (500ms) before credential failover.
+6. **Transient 429 exponential backoff:** Proves RPM rate limit with short `retryDelay` applies jittered backoff.
+7. **Daily quota 429 cooldown activation:** Proves `quotaId` with `PerDay` sets `cooldownUntil` and disables credential.
+8. **Safe `Retry-After` parsing:** Tests float, string (`"19.29s"`), and integer header parsing.
+9. **Invalid API key handling:** 401 unauthenticated marks credential permanently unavailable for process life.
+10. **Model 404 immediate cascade:** 404 does not disable the project; immediately falls through to next model in cascade.
+11. **No infinite retry loop:** Verifies all retry counters are strictly bounded.
+12. **Concurrent worker distribution:** Proves consecutive requests distribute across healthy projects without collision.
+13. **Model cascade preservation:** Strictly verifies `3.8 ➔ 3.7 ➔ 3.5 ➔ 2.5 ➔ 2.5-lite` sequence.
+14. **Secret sanitization in logs:** Verifies zero API keys or credentials appear in console logs, audit logs, or error strings.
+15. **Fail-safe pending review guarantee:** Verifies no circumstance can auto-approve or auto-publish unmoderated content.
+16. **Restart storm prevention:** Verifies process restart does not trigger immediate retry storm on known exhausted projects.
+
+### B. Multi-Slot Scheduling Tests (22 Tests)
+1. **Four slot recognition:** `evaluatePostingWindow` correctly recognizes `00:00`, `06:00`, `12:00`, and `18:00`.
+2. **Timezone fidelity:** Validates evaluation strictly respects `Asia/Kolkata` regardless of machine local timezone.
+3. **00:00 slot window:** Tests 23:55 to 00:25 IST window and midnight date rollover.
+4. **06:00 slot window:** Tests 05:55 to 06:25 IST window.
+5. **12:00 slot window:** Tests 11:55 to 12:25 IST window.
+6. **18:00 slot window:** Tests 17:55 to 18:25 IST window.
+7. **Slot uniqueness constraint:** Database constraint prevents duplicate claims for the same slot.
+8. **Duplicate invocation protection:** Second runner within the same window safely exits without duplicate work.
+9. **Delayed runner tolerance:** Runner delayed by 15 minutes inside window successfully claims slot.
+10. **Outside window handling:** Verifies that a scheduled invocation outside a valid slot window does not claim a slot, does not moderate queued confessions, does not consume Gemini quota, does not publish, and exits cleanly with `postingSkippedReason = 'outside_schedule_window'`. Also verifies that only an explicitly authorized manual/admin diagnostic invocation may bypass the scheduled-window restriction.
+11. **Batch limit vs. run completion:** Confirms `max_per_batch` does not terminate the run; queue drains fully.
+12. **Per-slot limit enforcement:** Confirms slot stops publishing once `posts_per_slot` is reached.
+13. **Global daily limit enforcement:** Confirms all 4 slots combined cannot exceed `max_daily_posts = 30`.
+14. **Cross-slot quota capping:** Slot 4 caps at `min(posts_per_slot, remainingDailyQuota)` (e.g. 6 posts).
+15. **Posting disabled operational switch:** When `posting_enabled = false`, publishing is skipped cleanly.
+16. **Gemini failure isolation:** Total Gemini failure does not corrupt or abort the posting slot.
+17. **Instagram failure isolation:** Platform rate limits or outages safely pause queue draining without slot corruption.
+18. **Durable lock mutual exclusion:** Concurrency lock prevents parallel workers from running the same slot.
+19. **Dry run non-mutation guarantee:** Dry-run executes all 4 slots with zero database or Instagram mutations.
+20. **Slot failure independence:** Failed Slot 2 does not block Slot 3 from running independently.
+21. **Scheduling + Gemini failover integration:** Proves multi-project failover works seamlessly within scheduled slots.
+22. **Cooldown survival across slots:** Credential marked in daily cooldown during Slot 1 remains in cooldown during Slot 2 until reset time.

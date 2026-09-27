@@ -114,13 +114,13 @@ export const SETTINGS_ALLOWLIST: Record<string, SettingDefinition> = {
   daily_posting_times: {
     key: 'daily_posting_times',
     type: 'string',
-    defaultValue: '20:00,22:00',
-    description: 'Comma-separated daily posting times in HH:MM 24-hr format (e.g. 20:00,22:00)',
+    defaultValue: '00:00,06:00,12:00,18:00',
+    description: 'Comma-separated daily posting times in HH:MM 24-hr format (e.g. 00:00,06:00,12:00,18:00)',
   },
   daily_posting_time: {
     key: 'daily_posting_time',
     type: 'string',
-    defaultValue: '20:00',
+    defaultValue: '00:00',
     description: 'Legacy daily posting time in HH:MM 24-hr format (superseded by daily_posting_times)',
   },
   posting_timezone: {
@@ -132,7 +132,7 @@ export const SETTINGS_ALLOWLIST: Record<string, SettingDefinition> = {
   posts_per_slot: {
     key: 'posts_per_slot',
     type: 'number',
-    defaultValue: 15,
+    defaultValue: 8,
     min: 1,
     max: 100,
     description: 'Maximum confessions to publish per individual posting slot (range: 1–100)',

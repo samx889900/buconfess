@@ -3,9 +3,12 @@ import { getSupabaseAdmin } from './supabase';
 import { getAdminConfessionCounts } from './confessions';
 import { DEFAULT_AGENT_LOCK_NAME } from './agentLock';
 import { recordAuditLog } from './audit';
+import { evaluatePostingWindow } from './schedule';
+import { getRuntimeSettings } from './settings';
+import { geminiCredentialPool } from './ai/credentialPool';
 
 // ---------------------------------------------------------------------------
-// Health & Operational Monitor (BU Confessions v3.4)
+// Health & Operational Monitor (BU Confessions v3.5)
 // ---------------------------------------------------------------------------
 // Security Invariants:
 //   1. Read-only health probing — never executes expensive external pipelines.
@@ -75,6 +78,39 @@ export interface HealthReport {
     processingCount: number;
     postingCount: number;
     totalStale: number;
+  };
+  schedule?: {
+    activeSchedule: string;
+    timezone: string;
+    isWithinWindow: boolean;
+    currentSlot: string;
+    diffMinutes: number;
+    todayPosted: number;
+    maxDailyPosts: number;
+    remainingDailyQuota: number;
+    postsPerSlot: number;
+    latestSlotRun: {
+      id: number;
+      postingDate: string;
+      scheduleSlot: string;
+      status: string;
+      startedAt: string;
+      completedAt: string | null;
+      publishedCount: number;
+      errorMessage: string | null;
+    } | null;
+  };
+  geminiPool?: {
+    slots: {
+      id: string;
+      available: boolean;
+      unavailableReason: string | null;
+      cooldownUntil: number | null;
+      consecutiveFailures: number;
+      lastSuccessAt: number | null;
+      activeInFlight: number;
+      totalRequests: number;
+    }[];
   };
 }
 
@@ -240,6 +276,73 @@ export async function getAdminHealthStatus(
     console.warn('[HEALTH] Failed to check stale work:', err);
   }
 
+  // 7. Schedule & Multi-Project Quota Telemetry
+  let scheduleTelemetry: HealthReport['schedule'];
+  try {
+    const settings = await getRuntimeSettings({ supabaseClient: supabase });
+    const windowCheck = evaluatePostingWindow(
+      new Date(),
+      settings.daily_posting_times,
+      settings.posting_timezone
+    );
+
+    // Calculate today's posted count (calendar day resets 00:00 IST)
+    const todayStr = windowCheck.postingDate || new Date().toISOString().split('T')[0];
+    const { count: todayPostedCount } = await supabase
+      .from('confessions')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'posted')
+      .gte('posted_at', `${todayStr}T00:00:00.000Z`);
+
+    const todayPosted = todayPostedCount || 0;
+    const remainingDailyQuota = Math.max(0, settings.max_daily_posts - todayPosted);
+
+    const { data: latestSlot } = await supabase
+      .from('daily_posting_runs')
+      .select('id, posting_date, schedule_slot, status, started_at, completed_at, published_count, error_message')
+      .order('id', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    scheduleTelemetry = {
+      activeSchedule: settings.daily_posting_times,
+      timezone: settings.posting_timezone,
+      isWithinWindow: windowCheck.isWithinWindow,
+      currentSlot: windowCheck.scheduleSlot,
+      diffMinutes: windowCheck.diffMinutes,
+      todayPosted,
+      maxDailyPosts: settings.max_daily_posts,
+      remainingDailyQuota,
+      postsPerSlot: settings.posts_per_slot,
+      latestSlotRun: latestSlot
+        ? {
+            id: latestSlot.id,
+            postingDate: latestSlot.posting_date,
+            scheduleSlot: latestSlot.schedule_slot,
+            status: latestSlot.status,
+            startedAt: latestSlot.started_at,
+            completedAt: latestSlot.completed_at,
+            publishedCount: latestSlot.published_count,
+            errorMessage: latestSlot.error_message,
+          }
+        : null,
+    };
+  } catch (schedErr) {
+    console.warn('[HEALTH] Failed to compute schedule telemetry:', schedErr);
+  }
+
+  // 8. Gemini Credential Pool Telemetry (Strictly Sanitized)
+  const geminiPoolSlots = geminiCredentialPool.getSlots().map((s) => ({
+    id: s.id,
+    available: s.available,
+    unavailableReason: s.unavailableReason,
+    cooldownUntil: s.cooldownUntil,
+    consecutiveFailures: s.consecutiveFailures,
+    lastSuccessAt: s.lastSuccessAt,
+    activeInFlight: s.activeInFlight,
+    totalRequests: s.totalRequests,
+  }));
+
   // Determine overall status
   let overall: 'ok' | 'degraded' | 'error' = 'ok';
   if (dbStatus === 'error') {
@@ -305,6 +408,10 @@ export async function getAdminHealthStatus(
       processingCount: staleProcessingCount,
       postingCount: stalePostingCount,
       totalStale: staleProcessingCount + stalePostingCount,
+    },
+    schedule: scheduleTelemetry,
+    geminiPool: {
+      slots: geminiPoolSlots,
     },
   };
 }
