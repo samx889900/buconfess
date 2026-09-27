@@ -145,3 +145,8 @@ dry-run-report.json
 apps/admin/dry-run-report.json
 test/*.png
 test/*.jpg
+.gemini-quota-ledger.json
+apps/admin/.gemini-quota-ledger.json
+backlog-initial-snapshot.json
+backlog-current-snapshot.json
+backlog-remoderation-results.json

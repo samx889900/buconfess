@@ -53,6 +53,10 @@ import {
   getTodayPostedCount,
   RuntimeSettings,
 } from '../apps/admin/lib/settings';
+import { geminiCredentialPool } from '../apps/admin/lib/ai/credentialPool';
+
+// Synchronize credential pool immediately after .env parsing
+geminiCredentialPool.refreshFromEnv();
 import {
   evaluatePostingWindow,
   claimDailyPostingSlot,
@@ -289,6 +293,9 @@ export async function runAgent(options: RunAgentOptions = {}): Promise<RunAgentR
     }
 
     // ── Phase C: AI Moderation Pipeline (Queue Draining) ──
+    geminiCredentialPool.refreshFromEnv();
+    const availableGeminiSlots = geminiCredentialPool.getAvailableSlots();
+    console.log(`[AGENT] Gemini Credential Pool: ${availableGeminiSlots.length}/${geminiCredentialPool.getSlots().length} slot(s) available.`);
     const processedPendingIds = new Set<number>();
     while (true) {
       if (Date.now() - startTime > MAX_RUNTIME_MS) {

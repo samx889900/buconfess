@@ -33,6 +33,8 @@ export interface Confession {
   matched_rules?: string[] | Record<string, unknown> | null;
   policy_level?: number | null;
   flags?: string[] | null;
+  model_id?: string | null;
+  infrastructure_reason?: string | null;
   parts: string;
   imageUrls: string;
   image_urls?: string[] | null;
@@ -706,41 +708,63 @@ export default function AdminPage() {
                   </div>
 
                   {/* Moderation / Error Metadata Box */}
-                  {(c.last_error || c.decision_reason || c.ai_verdict || c.model_confidence !== undefined) && (
-                    <div
-                      style={{
-                        background: c.last_error ? '#2a0e0e' : '#1c1c1c',
-                        border: `1px solid ${c.last_error ? '#7f1d1d' : '#333'}`,
-                        borderRadius: '8px',
-                        padding: '12px 14px',
-                        marginBottom: '16px',
-                        fontSize: '12px',
-                      }}
-                    >
-                      {c.last_error && (
-                        <div style={{ color: '#fca5a5', marginBottom: '6px', fontWeight: '600' }}>
-                          ⚠️ Error: <span style={{ fontWeight: 'normal', color: '#fecaca' }}>{c.last_error}</span>
+                  {(c.last_error || c.decision_reason || c.ai_verdict || c.model_confidence !== undefined) && (() => {
+                    const isCascadeExhausted =
+                      (Array.isArray(c.flags) && c.flags.includes('ai_cascade_exhausted')) ||
+                      c.model_id === 'cascade_failed' ||
+                      (typeof c.decision_reason === 'string' && c.decision_reason.includes('Cascade exhausted'));
+
+                    return (
+                      <div
+                        style={{
+                          background: c.last_error ? '#2a0e0e' : isCascadeExhausted ? '#261b07' : '#1c1c1c',
+                          border: `1px solid ${c.last_error ? '#7f1d1d' : isCascadeExhausted ? '#854d0e' : '#333'}`,
+                          borderRadius: '8px',
+                          padding: '12px 14px',
+                          marginBottom: '16px',
+                          fontSize: '12px',
+                        }}
+                      >
+                        {isCascadeExhausted && (
+                          <div style={{ color: '#fbbf24', marginBottom: '8px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span>⚡ Moderation Status: CASCADE EXHAUSTED (AI unavailable — routed to human review)</span>
+                          </div>
+                        )}
+                        {c.last_error && (
+                          <div style={{ color: '#fca5a5', marginBottom: '6px', fontWeight: '600' }}>
+                            ⚠️ Error: <span style={{ fontWeight: 'normal', color: '#fecaca' }}>{c.last_error}</span>
+                          </div>
+                        )}
+                        {c.decision_reason && (
+                          <div style={{ color: '#d4d4d4', marginBottom: '4px' }}>
+                            <strong style={{ color: '#a3a3a3' }}>Reason:</strong> {c.decision_reason}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', color: '#888', marginTop: '6px' }}>
+                          {c.ai_verdict && (
+                            <span>
+                              AI Verdict:{' '}
+                              <strong style={{ color: isCascadeExhausted ? '#fbbf24' : '#ddd' }}>
+                                {isCascadeExhausted ? 'pending_review (AI Unavailable)' : c.ai_verdict}
+                              </strong>
+                            </span>
+                          )}
+                          {!isCascadeExhausted && c.policy_level !== undefined && c.policy_level !== null && (
+                            <span>Policy Level: <strong style={{ color: '#ddd' }}>Level {c.policy_level}</strong></span>
+                          )}
+                          {!isCascadeExhausted && typeof c.model_confidence === 'number' && (
+                            <span>Confidence: <strong style={{ color: '#ddd' }}>{(c.model_confidence * 100).toFixed(0)}%</strong></span>
+                          )}
+                          {isCascadeExhausted && (
+                            <span>Policy Verdict: <em style={{ color: '#9ca3af' }}>Not evaluated (infrastructure failure)</em></span>
+                          )}
+                          {c.last_progress_at && (
+                            <span>Last Progress: {new Date(c.last_progress_at).toLocaleTimeString('en-IN')}</span>
+                          )}
                         </div>
-                      )}
-                      {c.decision_reason && (
-                        <div style={{ color: '#d4d4d4', marginBottom: '4px' }}>
-                          <strong style={{ color: '#a3a3a3' }}>Reason:</strong> {c.decision_reason}
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', color: '#888', marginTop: '6px' }}>
-                        {c.ai_verdict && <span>AI Verdict: <strong style={{ color: '#ddd' }}>{c.ai_verdict}</strong></span>}
-                        {c.policy_level !== undefined && c.policy_level !== null && (
-                          <span>Policy Level: <strong style={{ color: '#ddd' }}>Level {c.policy_level}</strong></span>
-                        )}
-                        {typeof c.model_confidence === 'number' && (
-                          <span>Confidence: <strong style={{ color: '#ddd' }}>{(c.model_confidence * 100).toFixed(0)}%</strong></span>
-                        )}
-                        {c.last_progress_at && (
-                          <span>Last Progress: {new Date(c.last_progress_at).toLocaleTimeString('en-IN')}</span>
-                        )}
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Carousel Thumbnails */}
                   {images.length > 0 && (

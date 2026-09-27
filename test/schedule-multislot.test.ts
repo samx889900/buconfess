@@ -673,24 +673,34 @@ describe('Phase 13.B: Multi-Slot Scheduling (Every 6 Hours)', () => {
 
   // Test 22: Cooldown survival across slots: Credential marked in cooldown during Slot 1 remains in cooldown during Slot 2
   it('22. Cooldown survival across slots: Cooldown persists until Pacific midnight reset', () => {
-    process.env.GEMINI_API_KEY_1 = 'KeySlot1';
-    process.env.GEMINI_API_KEY_2 = 'KeySlot2';
-    const pool = new GeminiCredentialPool();
+    const savedEnv = { ...process.env };
+    try {
+      delete process.env.GEMINI_API_KEY;
+      delete process.env.GEMINI_API_KEY_1;
+      delete process.env.GEMINI_API_KEY_2;
+      delete process.env.GEMINI_API_KEY_3;
+      delete process.env.GEMINI_API_KEY_4;
+      process.env.GEMINI_API_KEY_1 = 'KeySlot1';
+      process.env.GEMINI_API_KEY_2 = 'KeySlot2';
+      const pool = new GeminiCredentialPool();
 
-    // Slot 1 (00:00 IST): Project 1 exhausts daily quota
-    pool.releaseSlot('project-1', {
-      success: false,
-      error: new Error('ResourceExhausted: GenerateContentRequestsPerDay exceeded'),
-    });
+      // Slot 1 (00:00 IST): Project 1 exhausts daily quota
+      pool.releaseSlot('project-1', {
+        success: false,
+        error: new Error('ResourceExhausted: GenerateContentRequestsPerDay exceeded'),
+      });
 
-    const statusSlot1 = pool.getStatusReport().slots.find((s) => s.id === 'project-1');
-    assert.equal(statusSlot1?.available, false);
-    assert.ok(statusSlot1?.cooldownUntil && statusSlot1.cooldownUntil > Date.now());
+      const statusSlot1 = pool.getStatusReport().slots.find((s) => s.id === 'project-1');
+      assert.equal(statusSlot1?.available, false);
+      assert.ok(statusSlot1?.cooldownUntil && statusSlot1.cooldownUntil > Date.now());
 
-    // Slot 2 (06:00 IST, 6 hours later):
-    // If cooldownUntil is still in the future, project-1 remains unavailable
-    const availableSlot2 = pool.getAvailableSlots();
-    assert.equal(availableSlot2.length, 1);
-    assert.equal(availableSlot2[0].id, 'project-2');
+      // Slot 2 (06:00 IST, 6 hours later):
+      // If cooldownUntil is still in the future, project-1 remains unavailable
+      const availableSlot2 = pool.getAvailableSlots();
+      assert.equal(availableSlot2.length, 1);
+      assert.equal(availableSlot2[0].id, 'project-2');
+    } finally {
+      process.env = savedEnv;
+    }
   });
 });

@@ -102,9 +102,9 @@ export async function processConfessionModeration(
       moderationResult: {
         verdict: 'pending_review',
         decision_reason: `Moderation pipeline error: ${errorMsg}`,
-        model_confidence: 0,
+        model_confidence: null,
         matched_rules: ['SYS_PIPELINE_ERROR'],
-        policy_level: 5,
+        policy_level: null,
         flags: ['pipeline_error'],
         model_id: 'pipeline_error',
         model_version: 'none',

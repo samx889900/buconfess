@@ -273,14 +273,12 @@ describe('Phase 13.A: Gemini Credential Pool & Quota-Aware Failover', () => {
     pool.releaseSlot(lease2.id, { success: true });
   });
 
-  // Test 13: Model cascade preservation: Strictly verifies 3.8 -> 3.7 -> 3.5 -> 2.5 -> 2.5-lite sequence
-  it('13. Model cascade preservation: Strictly verifies 3.8 -> 3.7 -> 3.5 -> 2.5 -> 2.5-lite sequence', () => {
+  // Test 13: Model cascade preservation: Strictly verifies 3.5 -> 3.7 -> 3.8 sequence
+  it('13. Model cascade preservation: Strictly verifies 3.5 -> 3.7 -> 3.8 sequence', () => {
     assert.deepEqual(ALLOWED_GEMINI_MODELS, [
-      'gemini-3.8-flash',
-      'gemini-3.7-flash',
       'gemini-3.5-flash',
-      'gemini-2.5-flash',
-      'gemini-2.5-flash-lite',
+      'gemini-3.7-flash',
+      'gemini-3.8-flash',
     ]);
   });
 

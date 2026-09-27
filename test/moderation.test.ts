@@ -158,7 +158,7 @@ async function runAllTests() {
     const mockTimeoutClient = {
       generateContent: async ({ model }: { model: string }) => {
         timeoutAttempts++;
-        if (model === 'gemini-3.8-flash') {
+        if (model === 'gemini-3.5-flash') {
           const err = new Error('Timeout after 15000ms');
           throw err;
         }
@@ -195,7 +195,7 @@ async function runAllTests() {
     const mock429Client = {
       generateContent: async ({ model }: { model: string }) => {
         rateLimitCalls++;
-        if (model === 'gemini-3.8-flash') {
+        if (model === 'gemini-3.5-flash') {
           const err: Record<string, unknown> = new Error('ResourceExhausted: 429 Rate limit exceeded');
           err.status = 429;
           throw err;
@@ -231,8 +231,8 @@ async function runAllTests() {
   {
     const mockPrimaryFailClient = {
       generateContent: async ({ model }: { model: string }) => {
-        if (model === 'gemini-3.8-flash') {
-          throw new Error('503 Service Unavailable on 3.8');
+        if (model === 'gemini-3.5-flash') {
+          throw new Error('503 Service Unavailable on 3.5');
         }
         return {
           text: JSON.stringify({
@@ -258,19 +258,19 @@ async function runAllTests() {
   }
 
   // -------------------------------------------------------------------------
-  // TEST 9: 3.8 & 3.7 failure → 3.5-flash fallback
+  // TEST 9: 3.5 & 3.7 failure → 3.8-flash fallback
   // -------------------------------------------------------------------------
-  console.log('\nTest 9: 3.8 & 3.7 failure → 3.5-flash fallback');
+  console.log('\nTest 9: 3.5 & 3.7 failure → 3.8-flash fallback');
   {
     const mockDoubleFailClient = {
       generateContent: async ({ model }: { model: string }) => {
-        if (model === 'gemini-3.8-flash' || model === 'gemini-3.7-flash') {
+        if (model === 'gemini-3.5-flash' || model === 'gemini-3.7-flash') {
           throw new Error(`500 Internal Server Error on ${model}`);
         }
         return {
           text: JSON.stringify({
             verdict: 'approved',
-            decision_reason: 'Recovered via gemini-3.5-flash final fallback',
+            decision_reason: 'Recovered via gemini-3.8-flash tertiary fallback',
             model_confidence: 0.85,
             matched_rules: ['NONE'],
             policy_level: 5,
@@ -286,7 +286,7 @@ async function runAllTests() {
       skipDeterministicRules: true,
     });
 
-    assert(res.model_id === 'gemini-3.5-flash', 'Targeted model is gemini-3.5-flash');
+    assert(res.model_id === 'gemini-3.8-flash', 'Targeted model is gemini-3.8-flash');
     assert(res.fallback_used === true, 'Fallback flag is true');
     assert(res.verdict === 'approved', 'Verdict approved');
   }

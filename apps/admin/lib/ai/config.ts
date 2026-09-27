@@ -36,36 +36,48 @@ export interface AiPolicyVersions {
   instructionVersion: number;
 }
 
+export const MODERATION_MODELS = {
+  PRIMARY: 'gemini-3.5-flash',
+  SECONDARY: 'gemini-3.7-flash',
+  TERTIARY: 'gemini-3.8-flash',
+} as const;
+
 export const ALLOWED_GEMINI_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.5-flash',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
+  MODERATION_MODELS.PRIMARY,
+  MODERATION_MODELS.SECONDARY,
+  MODERATION_MODELS.TERTIARY,
 ] as const;
 
 export type AllowedGeminiModel = typeof ALLOWED_GEMINI_MODELS[number];
 
 export const DEFAULT_CASCADE: AllowedGeminiModel[] = [
-  'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.5-flash',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
+  MODERATION_MODELS.PRIMARY,
+  MODERATION_MODELS.SECONDARY,
+  MODERATION_MODELS.TERTIARY,
 ];
 
 export const AI_CONFIG = {
   // Allowlist and Default Cascade Order
+  models: MODERATION_MODELS,
   allowedModels: ALLOWED_GEMINI_MODELS,
   defaultCascade: DEFAULT_CASCADE,
 
+  // Quota & Request Budgeting Configuration (BU Confessions v3.5)
+  // Maintains a conservative safety budget below provider free-tier limits (20 RPD)
+  quota: {
+    freeTierObservedLimit: 20, // Free tier RPD per model per project
+    safetyMargin: 2,           // Reserve 2 requests safety margin per project
+    dailyBudgetPerModel: 18,   // 20 - 2 = 18 requests max per model per project per day
+    ambiguityConfidenceThreshold: 0.6, // Only confidence < 0.6 triggers semantic escalation
+  },
+
   // Bounded Retry & Backoff Configuration
   retryPolicy: {
-    timeoutMs: 10000,              // 10s timeout per attempt
-    maxRetriesForTimeout: 1,       // timeout -> max 1 retry -> fallback
-    maxRetriesFor503: 1,           // 503 -> max 1 short retry -> fallback
+    timeoutMs: 15000,              // 15s timeout per attempt (allows cold-start TLS & generation)
+    maxRetriesForTimeout: 1,       // timeout -> max 1 retry -> failover project
+    maxRetriesFor503: 1,           // 503 -> max 1 short retry -> mark project cooldown
     shortRetryDelay503Ms: 500,     // 500ms short backoff on 503
-    maxRetriesFor429: 1,           // 429 -> max 1 retry with bounded Retry-After -> fallback
+    maxRetriesFor429: 1,           // 429 RPM -> max 1 retry with bounded Retry-After
     maxRetryAfterMs: 3000,         // strict 3s upper bound on Retry-After
     baseDelayMs: 500,
     maxDelayMs: 3000,

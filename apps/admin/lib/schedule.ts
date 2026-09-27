@@ -43,7 +43,7 @@ export function parsePostingTimes(timesStr: string): string[] {
  */
 export function evaluatePostingWindow(
   now: Date,
-  targetTimeStr: string = '00:00,06:00,12:00,18:00',
+  targetTimeStr: string = '06:00,12:00,16:00,22:00',
   timezone: string = 'Asia/Kolkata',
   windowMinutesBefore: number = 5,
   windowMinutesAfter: number = 25

@@ -111,6 +111,7 @@ async function runProductionPreflight() {
   console.log('  max_daily_posts:', settings.max_daily_posts);
   console.log('  max_per_batch:', settings.max_per_batch);
   console.log('  posting_timezone:', settings.posting_timezone);
+  console.log('  moderation_model_cascade:', (settings as any).moderation_model_cascade);
 
   // 6. Active Concurrency Locks
   console.log('\n--- 6. Active Agent Locks ---');

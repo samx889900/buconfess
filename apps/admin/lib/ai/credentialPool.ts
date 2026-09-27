@@ -36,6 +36,7 @@ export interface CredentialPoolSlot {
 }
 
 export { extractRetryAfterMs } from './config';
+import { geminiQuotaLedger } from './quotaLedger';
 
 export interface LeasedCredential {
   id: string;
@@ -72,7 +73,8 @@ export function classifyGeminiError(error: unknown): GeminiErrorClassification {
     lower.includes('404') ||
     lower.includes('not found') ||
     lower.includes('is not found') ||
-    lower.includes('model not found')
+    lower.includes('model not found') ||
+    lower.includes('no longer available')
   ) {
     return 'MODEL_NOT_FOUND';
   }
@@ -230,29 +232,46 @@ export class GeminiCredentialPool {
 
   /**
    * Refreshes credentials from environment variables:
-   *   GEMINI_API_KEY_1, GEMINI_API_KEY_2, GEMINI_API_KEY_3, GEMINI_API_KEY_4
-   * With fallback to GEMINI_API_KEY (mapped to project-1).
+   *   GEMINI_API_KEY, GEMINI_API_KEY_1, GEMINI_API_KEY_2, GEMINI_API_KEY_3, GEMINI_API_KEY_4
+   * Discovers all configured keys, ignores unset/empty keys, and deduplicates identical keys.
+   * Assigns stable masked identifiers: project-1, project-2, project-3, project-4, project-5.
    */
   public refreshFromEnv(): void {
     const loaded: { id: string; apiKey: string }[] = [];
+    const seenKeys = new Set<string>();
 
-    // Check GEMINI_API_KEY_1..4
-    for (let i = 1; i <= 4; i++) {
-      const key = process.env[`GEMINI_API_KEY_${i}`]?.trim();
-      if (key) {
-        loaded.push({ id: `project-${i}`, apiKey: key });
-      }
-    }
+    const envKeys = [
+      'GEMINI_API_KEY',
+      'GEMINI_API_KEY_1',
+      'GEMINI_API_KEY_2',
+      'GEMINI_API_KEY_3',
+      'GEMINI_API_KEY_4',
+      'GEMINI_API_KEY_5',
+    ];
 
-    // Fallback to GEMINI_API_KEY
-    if (loaded.length === 0) {
-      const defaultKey = process.env.GEMINI_API_KEY?.trim();
-      if (defaultKey) {
-        loaded.push({ id: 'project-1', apiKey: defaultKey });
+    let slotCounter = 1;
+    for (const envName of envKeys) {
+      const keyVal = process.env[envName]?.trim();
+      if (keyVal && !seenKeys.has(keyVal)) {
+        seenKeys.add(keyVal);
+        loaded.push({ id: `project-${slotCounter}`, apiKey: keyVal });
+        slotCounter++;
       }
     }
 
     this.#credentials.clear();
+    const currentSlotIds = new Set(loaded.map((c) => c.id));
+
+    // Synchronize Quota Ledger with discovered project IDs
+    geminiQuotaLedger.initSlots(loaded.map((c) => c.id));
+
+    // Remove any slots that are no longer in loaded
+    for (const existingId of Array.from(this.#slots.keys())) {
+      if (!currentSlotIds.has(existingId)) {
+        this.#slots.delete(existingId);
+      }
+    }
+
     for (const cred of loaded) {
       this.#credentials.set(cred.id, cred.apiKey);
       if (!this.#slots.has(cred.id)) {
@@ -293,6 +312,8 @@ export class GeminiCredentialPool {
         totalRequests: 0,
       });
     }
+
+    geminiQuotaLedger.initSlots(creds.map((c) => c.id));
   }
 
   /**
@@ -325,9 +346,10 @@ export class GeminiCredentialPool {
 
   /**
    * Leases a credential slot for in-flight request processing.
-   * Uses least-busy (minimum active in-flight), breaking ties with round-robin.
+   * If model is provided, uses quotaLedger.selectBestProject to pick the healthiest slot with budget.
+   * Otherwise uses least-busy (minimum active in-flight), breaking ties with round-robin.
    */
-  public leaseSlot(preferredId?: string): LeasedCredential | null {
+  public leaseSlot(preferredId?: string, model?: string): LeasedCredential | null {
     const available = this.getAvailableSlots();
     if (available.length === 0) return null;
 
@@ -335,6 +357,11 @@ export class GeminiCredentialPool {
 
     if (preferredId) {
       selectedSlot = available.find((s) => s.id === preferredId);
+    } else if (model) {
+      const bestId = geminiQuotaLedger.selectBestProject(model, available.map((s) => s.id));
+      if (bestId) {
+        selectedSlot = available.find((s) => s.id === bestId);
+      }
     }
 
     if (!selectedSlot) {
@@ -356,6 +383,10 @@ export class GeminiCredentialPool {
     internalSlot.activeInFlight++;
     internalSlot.totalRequests++;
 
+    if (model) {
+      geminiQuotaLedger.recordAttempt(selectedSlot.id, model);
+    }
+
     return {
       id: selectedSlot.id,
       slot: { ...internalSlot },
@@ -375,7 +406,7 @@ export class GeminiCredentialPool {
    */
   public releaseSlot(
     slotId: string,
-    result: { success: boolean; error?: unknown; is404ModelNotFound?: boolean }
+    result: { success: boolean; error?: unknown; is404ModelNotFound?: boolean; model?: string }
   ): void {
     const slot = this.#slots.get(slotId);
     if (!slot) return;
@@ -386,6 +417,9 @@ export class GeminiCredentialPool {
       slot.lastSuccessAt = Date.now();
       slot.consecutiveFailures = 0;
       slot.lastErrorType = null;
+      if (result.model) {
+        geminiQuotaLedger.recordSuccess(slotId, result.model);
+      }
       return;
     }
 
@@ -393,6 +427,10 @@ export class GeminiCredentialPool {
     slot.consecutiveFailures++;
     const classification = classifyGeminiError(result.error);
     slot.lastErrorType = classification;
+
+    if (result.model) {
+      geminiQuotaLedger.recordFailure(slotId, result.model, result.error, classification);
+    }
 
     if (classification === 'AUTHENTICATION') {
       slot.available = false;
@@ -422,6 +460,7 @@ export class GeminiCredentialPool {
    */
   public reset(): void {
     this.refreshFromEnv();
+    geminiQuotaLedger.reset();
     for (const slot of this.#slots.values()) {
       slot.available = true;
       slot.unavailableReason = null;
@@ -433,6 +472,17 @@ export class GeminiCredentialPool {
       slot.totalRequests = 0;
     }
     this.#roundRobinIndex = 0;
+  }
+
+  /**
+   * Test harness helper to simulate cooldown timestamps and verify expiry.
+   */
+  public setSlotCooldownForTesting(slotId: string, cooldownUntil: number | null): void {
+    const slot = this.#slots.get(slotId);
+    if (slot) {
+      slot.cooldownUntil = cooldownUntil;
+      slot.available = cooldownUntil ? Date.now() >= cooldownUntil : true;
+    }
   }
 }
 

@@ -6,6 +6,7 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "diagnose:gemini": "tsx scripts/diagnose-gemini.ts"
   }
 }

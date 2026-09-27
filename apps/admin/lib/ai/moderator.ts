@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import {
   AI_CONFIG,
+  MODERATION_MODELS,
   isRetryableAiError,
   isDeterministicError,
   isTimeoutError,
@@ -11,29 +12,26 @@ import {
 import { ModerationResult, validateModerationOutput } from './schema';
 import { checkDeterministicRules } from './rules';
 import { SYSTEM_MODERATION_INSTRUCTION, buildModerationUserPrompt, computePromptHash } from './prompt';
-import { getSecrets } from '../secrets';
 import { getRuntimeSettings } from '../settings';
 import {
   geminiCredentialPool,
   GeminiCredentialPool,
   classifyGeminiError,
 } from './credentialPool';
+import { geminiQuotaLedger } from './quotaLedger';
 
 // ---------------------------------------------------------------------------
-// Gemini Model Cascade & AI Moderator (BU Confessions v3.5)
+// Gemini Multi-Project Quota-Aware AI Moderator (BU Confessions v3.5)
 // ---------------------------------------------------------------------------
-// Orchestrates content moderation across an allowlisted Gemini model cascade:
-//   gemini-3.8-flash (Primary)
-//       ↓ (503 / timeout / 429 / failure / 404)
-//   gemini-3.7-flash (Fallback 1)
-//       ↓ (503 / timeout / 429 / failure / 404)
-//   gemini-3.5-flash (Fallback 2)
-//       ↓ (503 / timeout / 429 / failure / 404)
-//   gemini-2.5-flash (Fallback 3)
-//       ↓ (503 / timeout / 429 / failure / 404)
-//   gemini-2.5-flash-lite (Fallback 4)
-//       ↓ (all fail)
-//   pending_review (Never auto-reject solely due to AI provider failure)
+// Architecture Principles:
+//   1. PRIMARY MODEL: gemini-3.5-flash (High throughput, efficient classifier)
+//   2. AMBIGUITY ESCALATION ONLY: gemini-3.7-flash (Invoked ONLY on genuine uncertainty: confidence < 0.6)
+//   3. TERTIARY EXCEPTION ONLY: gemini-3.8-flash (Invoked ONLY if 3.7 remains genuinely uncertain)
+//   4. NORMAL PATH: 1 confession -> 1 gemini-3.5-flash request -> Done!
+//   5. A valid approved, rejected, or confident pending_review verdict STOPS immediately.
+//   6. INFRASTRUCTURE FAILURES (503, 429, timeouts) DO NOT TRIGGER MODEL ESCALATION.
+//      They trigger bounded slot retry (max 1) and failover to healthy project slots.
+//   7. Target metric: gemini_calls_per_decision <= 1.1 on average.
 // ---------------------------------------------------------------------------
 
 export interface ModerateOptions {
@@ -60,8 +58,8 @@ export interface ModerateOptions {
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
- * Moderates a single confession text following the full hierarchy,
- * deterministic pre-filter, and Gemini model cascade.
+ * Moderates a single confession text following the quota-aware hierarchy,
+ * deterministic pre-filter, and semantic ambiguity escalation.
  */
 export async function moderateConfession(
   text: string,
@@ -74,11 +72,33 @@ export async function moderateConfession(
     confessionId = 'unassigned',
   } = options;
 
+  // ── 0. Input Size & Sanity Pre-Filter ──
+  const trimmed = (text || '').trim();
+  if (!trimmed) {
+    return {
+      verdict: 'rejected',
+      decision_reason: 'Confession text cannot be empty or solely whitespace.',
+      model_confidence: 1.0,
+      matched_rules: ['EMPTY_INPUT'],
+      policy_level: 4,
+      flags: ['empty_submission'],
+      model_id: 'deterministic_prefilter',
+      model_version: 'v3.5',
+      ai_policy_version: AI_CONFIG.versions.aiPolicyVersion,
+      instruction_version: AI_CONFIG.versions.instructionVersion,
+      prompt_hash: 'none',
+      generation_config: {},
+      fallback_used: false,
+      deterministic_filter_used: true,
+      telemetry: [],
+    };
+  }
+
   // ── 1. Deterministic Rule Pre-Filter ──
   if (!skipDeterministicRules) {
-    const deterministic = checkDeterministicRules(text);
+    const deterministic = checkDeterministicRules(trimmed);
     if (deterministic.matched && deterministic.moderation) {
-      const promptHash = computePromptHash(buildModerationUserPrompt(text));
+      const promptHash = computePromptHash(buildModerationUserPrompt(trimmed));
       return {
         ...deterministic.moderation,
         model_id: 'deterministic_prefilter',
@@ -93,13 +113,16 @@ export async function moderateConfession(
     }
   }
 
-  // ── 2. Resolve Credential Pool & Model Cascade ──
+  // ── 2. Resolve Credential Pool & Model Hierarchy ──
   const pool = options.credentialPool || geminiCredentialPool;
+  if (!options.credentialPool) {
+    pool.refreshFromEnv();
+  }
 
-  // ── 3. Resolve Model Cascade with Allowlist ──
-  let configuredCascade: readonly string[] = AI_CONFIG.defaultCascade;
+  // Resolve Model Hierarchy: Primary (3.5) -> Secondary (3.7) -> Tertiary (3.8)
+  let activeCascade: readonly string[] = AI_CONFIG.defaultCascade;
   if (options.modelCascade && options.modelCascade.length > 0) {
-    configuredCascade = options.modelCascade;
+    activeCascade = options.modelCascade;
   } else {
     try {
       const runtimeSettings = await getRuntimeSettings();
@@ -107,51 +130,18 @@ export async function moderateConfession(
         const parsed = runtimeSettings.moderation_model_cascade
           .split(',')
           .map((s) => s.trim())
-          .filter(Boolean);
+          .filter((m) => AI_CONFIG.allowedModels.includes(m as any));
         if (parsed.length > 0) {
-          configuredCascade = parsed;
+          activeCascade = parsed;
         }
       }
     } catch {
-      // Fallback to default cascade if settings cannot be read
-      configuredCascade = AI_CONFIG.defaultCascade;
+      activeCascade = AI_CONFIG.defaultCascade;
     }
   }
 
-  // Strictly filter against allowed models
-  const allowedSet = new Set<string>(AI_CONFIG.allowedModels);
-  const unallowed = configuredCascade.filter((m) => !allowedSet.has(m));
-  if (unallowed.length > 0) {
-    console.warn(
-      `[MODERATION] confession_id=${confessionId} Configured models not in allowlist rejected: [${unallowed.join(', ')}]`
-    );
-  }
-
-  const activeCascade = configuredCascade.filter((m) => allowedSet.has(m));
-  const userPrompt = buildModerationUserPrompt(text);
+  const userPrompt = buildModerationUserPrompt(trimmed);
   const promptHash = computePromptHash(userPrompt);
-
-  if (activeCascade.length === 0) {
-    console.warn(
-      `[MODERATION] confession_id=${confessionId} No valid allowlisted models in cascade — routing safely to pending_review`
-    );
-    return {
-      verdict: 'pending_review',
-      decision_reason: 'Configured model cascade contains no valid allowlisted models (routed to human review).',
-      model_confidence: 0,
-      matched_rules: ['SYS_EMPTY_MODEL_CASCADE'],
-      policy_level: 5,
-      flags: ['invalid_cascade_config', 'needs_manual_review'],
-      model_id: 'none',
-      model_version: 'none',
-      ai_policy_version: AI_CONFIG.versions.aiPolicyVersion,
-      instruction_version: AI_CONFIG.versions.instructionVersion,
-      prompt_hash: promptHash,
-      generation_config: {},
-      fallback_used: true,
-      deterministic_filter_used: false,
-    };
-  }
 
   // If mockClient is not provided, verify credential pool availability
   if (!mockClient) {
@@ -161,10 +151,10 @@ export async function moderateConfession(
       return {
         verdict: 'pending_review',
         decision_reason: 'GEMINI_API_KEY not configured on server (routed to human review).',
-        model_confidence: 0,
+        model_confidence: null,
         matched_rules: ['SYS_NO_API_KEY'],
-        policy_level: 5,
-        flags: ['system_warning'],
+        policy_level: null,
+        flags: ['system_warning', 'needs_manual_review'],
         model_id: 'none',
         model_version: 'none',
         ai_policy_version: AI_CONFIG.versions.aiPolicyVersion,
@@ -173,22 +163,23 @@ export async function moderateConfession(
         generation_config: {},
         fallback_used: true,
         deterministic_filter_used: false,
+        infrastructure_reason: 'Zero Gemini credentials discovered in environment',
+        telemetry: [],
       };
     }
   }
 
   let lastError: Error | null = null;
+  const telemetry: import('./schema').ModerationTelemetryEntry[] = [];
 
-  // ── 4. Execute Model Cascade ──
-  for (let modelIndex = 0; modelIndex < activeCascade.length; modelIndex++) {
-    const modelName = activeCascade[modelIndex];
-    const isPrimary = modelIndex === 0;
-    const fallbackUsed = !isPrimary;
-
-    // Path A: Mock client for isolated unit testing
-    if (mockClient) {
+  // =========================================================================
+  // PATH A: Mock Client Execution (Unit Testing / Diagnostics)
+  // =========================================================================
+  if (mockClient) {
+    for (let modelIndex = 0; modelIndex < activeCascade.length; modelIndex++) {
+      const modelName = activeCascade[modelIndex];
+      const isPrimary = modelIndex === 0;
       let modelAttempt = 0;
-      let rawResponseText = '';
       let shouldCascade = false;
 
       while (!shouldCascade) {
@@ -202,19 +193,48 @@ export async function moderateConfession(
               ...AI_CONFIG.generationConfig,
             },
           });
-          rawResponseText = typeof resp.text === 'function' ? resp.text() : resp.text || '';
+          const rawText = typeof resp.text === 'function' ? resp.text() : resp.text || '';
           const latencyMs = Date.now() - attemptStartTime;
 
-          const validation = validateModerationOutput(rawResponseText);
+          const validation = validateModerationOutput(rawText);
           if (!validation.success || !validation.data) {
-            console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=invalid_schema action=${modelAttempt === 0 ? 'retry' : 'cascade'} error="${validation.error}"`
-            );
+            telemetry.push({
+              model: modelName,
+              credential_slot: 'mock',
+              attempt_number: modelAttempt + 1,
+              error_class: 'INVALID_REQUEST',
+              retry_count: modelAttempt,
+              duration_ms: latencyMs,
+              result: 'invalid_schema',
+              timestamp: new Date().toISOString(),
+            });
             if (modelAttempt === 0) {
               modelAttempt++;
               await sleepFn(AI_CONFIG.retryPolicy.baseDelayMs);
               continue;
             }
+            shouldCascade = true;
+            break;
+          }
+
+          telemetry.push({
+            model: modelName,
+            credential_slot: 'mock',
+            attempt_number: modelAttempt + 1,
+            retry_count: modelAttempt,
+            duration_ms: latencyMs,
+            result: 'success',
+            timestamp: new Date().toISOString(),
+          });
+
+          // Check semantic ambiguity escalation
+          const conf = validation.data.model_confidence ?? 1.0;
+          const isAmbiguous =
+            validation.data.verdict === 'pending_review' &&
+            conf < AI_CONFIG.quota.ambiguityConfidenceThreshold;
+
+          if (isAmbiguous && modelIndex < activeCascade.length - 1) {
+            // Escalate to next model
             shouldCascade = true;
             break;
           }
@@ -227,50 +247,30 @@ export async function moderateConfession(
             instruction_version: AI_CONFIG.versions.instructionVersion,
             prompt_hash: promptHash,
             generation_config: AI_CONFIG.generationConfig,
-            fallback_used: fallbackUsed,
+            fallback_used: !isPrimary,
             deterministic_filter_used: false,
+            telemetry,
           };
-        } catch (err) {
+        } catch (err: any) {
           const latencyMs = Date.now() - attemptStartTime;
           lastError = err instanceof Error ? err : new Error(String(err));
+          const classification = classifyGeminiError(lastError);
+
+          telemetry.push({
+            model: modelName,
+            credential_slot: 'mock',
+            attempt_number: modelAttempt + 1,
+            error_class: classification,
+            retry_count: modelAttempt,
+            duration_ms: latencyMs,
+            result: 'failed',
+            timestamp: new Date().toISOString(),
+          });
 
           if (isDeterministicError(lastError)) {
-            console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} attempt=${modelAttempt + 1} latency_ms=${latencyMs} result=deterministic_error action=cascade error="${lastError.message}"`
-            );
             shouldCascade = true;
             break;
-          } else if (isTimeoutError(lastError)) {
-            if (modelAttempt < AI_CONFIG.retryPolicy.maxRetriesForTimeout) {
-              modelAttempt++;
-              await sleepFn(AI_CONFIG.retryPolicy.baseDelayMs);
-              continue;
-            }
-            shouldCascade = true;
-            break;
-          } else if (is503Error(lastError)) {
-            if (modelAttempt < AI_CONFIG.retryPolicy.maxRetriesFor503) {
-              modelAttempt++;
-              await sleepFn(AI_CONFIG.retryPolicy.shortRetryDelay503Ms);
-              continue;
-            }
-            shouldCascade = true;
-            break;
-          } else if (is429Error(lastError)) {
-            const retryAfterMs = extractRetryAfterMs(lastError);
-            if (retryAfterMs !== null && retryAfterMs > AI_CONFIG.retryPolicy.maxRetryAfterMs) {
-              shouldCascade = true;
-              break;
-            }
-            if (modelAttempt < AI_CONFIG.retryPolicy.maxRetriesFor429) {
-              const delay = retryAfterMs !== null ? retryAfterMs : AI_CONFIG.retryPolicy.baseDelayMs;
-              modelAttempt++;
-              await sleepFn(delay);
-              continue;
-            }
-            shouldCascade = true;
-            break;
-          } else if (isRetryableAiError(lastError) && modelAttempt < 1) {
+          } else if (modelAttempt === 0 && (is503Error(lastError) || isTimeoutError(lastError) || is429Error(lastError))) {
             modelAttempt++;
             await sleepFn(AI_CONFIG.retryPolicy.baseDelayMs);
             continue;
@@ -280,31 +280,77 @@ export async function moderateConfession(
           }
         }
       }
+    }
 
-      if (!shouldCascade) {
-        // If not cascaded and didn't return, model finished
+    // Mock cascade exhausted
+    return {
+      verdict: 'pending_review',
+      decision_reason: `AI moderation unavailable across all models: ${lastError?.message || 'Cascade exhausted'} (routed to human review).`,
+      model_confidence: null,
+      matched_rules: ['SYS_MODERATION_UNAVAILABLE'],
+      policy_level: null,
+      flags: ['ai_cascade_exhausted', 'needs_manual_review'],
+      model_id: 'cascade_failed',
+      model_version: 'none',
+      ai_policy_version: AI_CONFIG.versions.aiPolicyVersion,
+      instruction_version: AI_CONFIG.versions.instructionVersion,
+      prompt_hash: promptHash,
+      generation_config: AI_CONFIG.generationConfig,
+      fallback_used: true,
+      deterministic_filter_used: false,
+      infrastructure_reason: 'Mock cascade exhausted',
+      telemetry,
+    };
+  }
+
+  // =========================================================================
+  // PATH B: Live Quota-Aware Multi-Project Execution
+  // =========================================================================
+  // Strategy:
+  //   1. Normal path: Evaluate Primary Model (gemini-3.5-flash).
+  //   2. If Primary produces confident approved/rejected/pending_review -> DONE! (1 call).
+  //   3. ONLY if Primary produces ambiguous pending_review (confidence < 0.6) -> Escalate to 3.7.
+  //   4. Infrastructure failures (503/429/timeout) use bounded retries and project failover,
+  //      NEVER triggering semantic model escalation.
+  // =========================================================================
+
+  for (let modelIndex = 0; modelIndex < activeCascade.length; modelIndex++) {
+    const modelName = activeCascade[modelIndex];
+    const isPrimary = modelIndex === 0;
+
+    // Quota-aware project slot selection:
+    // Try up to 2 distinct healthy project slots for this model (bounded failover)
+    const MAX_PROJECT_FAILOVERS_PER_MODEL = 2;
+    let projectAttemptCount = 0;
+    let modelSuccess = false;
+    let evaluatedResult: ModerationResult | null = null;
+    const attemptedSlots = new Set<string>();
+
+    while (projectAttemptCount < MAX_PROJECT_FAILOVERS_PER_MODEL) {
+      // Lease best healthy slot with remaining daily budget for this model
+      const available = pool.getAvailableSlots().filter((s) => !attemptedSlots.has(s.id));
+      if (available.length === 0) {
+        break; // No healthy slots left for this model
+      }
+
+      const bestSlotId = geminiQuotaLedger.selectBestProject(modelName, available.map((s) => s.id));
+      if (!bestSlotId) {
+        // No slots have available daily safety budget for this model
+        break;
+      }
+
+      attemptedSlots.add(bestSlotId);
+      const leased = pool.leaseSlot(bestSlotId, modelName);
+      if (!leased) {
         continue;
       }
-      continue;
-    }
 
-    // Path B: Live multi-project credential pool execution
-    const availableSlots = pool.getAvailableSlots();
-    if (availableSlots.length === 0) {
-      console.warn(
-        `[MODERATION] confession_id=${confessionId} All Gemini project credentials are in cooldown or unavailable.`
-      );
-      break;
-    }
-
-    let modelUnsupportedAcrossAllProjects = false;
-
-    for (const slot of availableSlots) {
-      const leased = pool.leaseSlot(slot.id);
-      if (!leased) continue;
-
+      projectAttemptCount++;
+      const slotId = leased.id;
       const ai = new GoogleGenAI({ apiKey: leased.apiKey });
-      let modelAttempt = 0;
+
+      // In-slot retry policy: max 1 retry for transient 503/timeout
+      let slotAttempt = 0;
       let slotFinished = false;
 
       while (!slotFinished) {
@@ -339,25 +385,48 @@ export async function moderateConfession(
           const validation = validateModerationOutput(rawResponseText);
           if (!validation.success || !validation.data) {
             console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} latency_ms=${latencyMs} result=invalid_schema error="${validation.error}"`
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slotId} latency_ms=${latencyMs} result=invalid_schema error="${validation.error}"`
             );
-            if (modelAttempt === 0) {
-              modelAttempt++;
+            telemetry.push({
+              model: modelName,
+              credential_slot: slotId,
+              attempt_number: slotAttempt + 1,
+              error_class: 'INVALID_REQUEST',
+              retry_count: slotAttempt,
+              duration_ms: latencyMs,
+              result: 'invalid_schema',
+              timestamp: new Date().toISOString(),
+            });
+
+            if (slotAttempt === 0) {
+              slotAttempt++;
               await sleepFn(AI_CONFIG.retryPolicy.baseDelayMs);
               continue;
             }
-            pool.releaseSlot(slot.id, { success: false, error: new Error(validation.error || 'Invalid JSON') });
+            pool.releaseSlot(slotId, { success: false, error: new Error(validation.error || 'Invalid JSON'), model: modelName });
             slotFinished = true;
             break;
           }
 
-          // Successful moderation!
-          pool.releaseSlot(slot.id, { success: true });
+          // SUCCESSFUL EVALUATION!
+          pool.releaseSlot(slotId, { success: true, model: modelName });
+          geminiQuotaLedger.recordDecision();
+
           console.log(
-            `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} latency_ms=${latencyMs} result=success verdict=${validation.data.verdict}`
+            `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slotId} latency_ms=${latencyMs} result=success verdict=${validation.data.verdict}`
           );
 
-          return {
+          telemetry.push({
+            model: modelName,
+            credential_slot: slotId,
+            attempt_number: slotAttempt + 1,
+            retry_count: slotAttempt,
+            duration_ms: latencyMs,
+            result: 'success',
+            timestamp: new Date().toISOString(),
+          });
+
+          evaluatedResult = {
             ...validation.data,
             model_id: modelName,
             model_version: 'v3.5',
@@ -365,97 +434,177 @@ export async function moderateConfession(
             instruction_version: AI_CONFIG.versions.instructionVersion,
             prompt_hash: promptHash,
             generation_config: AI_CONFIG.generationConfig,
-            fallback_used: fallbackUsed,
+            fallback_used: !isPrimary,
             deterministic_filter_used: false,
+            telemetry,
           };
+
+          modelSuccess = true;
+          slotFinished = true;
+          break;
         } catch (err) {
           const latencyMs = Date.now() - attemptStartTime;
           lastError = err instanceof Error ? err : new Error(String(err));
           const classification = classifyGeminiError(lastError);
 
-          // 404: Model not found on Google's API -> cascade model immediately across all projects
+          let httpStatus: number | undefined;
+          if (typeof err === 'object' && err !== null) {
+            const errObj = err as Record<string, unknown>;
+            if (typeof errObj.status === 'number') httpStatus = errObj.status;
+            else if (typeof errObj.code === 'number') httpStatus = errObj.code;
+            else if (typeof errObj.statusCode === 'number') httpStatus = errObj.statusCode;
+          }
+
+          let outcomeTag: import('./schema').ModerationTelemetryEntry['result'] = 'failed';
+          if (classification === 'MODEL_NOT_FOUND') outcomeTag = 'not_found';
+          else if (classification === 'DAILY_QUOTA_EXHAUSTED' || classification === 'RATE_LIMIT_TRANSIENT')
+            outcomeTag = 'rate_limited';
+          else if (classification === 'SERVICE_UNAVAILABLE') outcomeTag = 'service_unavailable';
+          else if (classification === 'AUTHENTICATION') outcomeTag = 'auth_error';
+          else if (classification === 'PERMISSION') outcomeTag = 'permission_error';
+          else if (classification === 'TIMEOUT') outcomeTag = 'timeout';
+
+          telemetry.push({
+            model: modelName,
+            credential_slot: slotId,
+            attempt_number: slotAttempt + 1,
+            error_class: classification,
+            http_status: httpStatus,
+            retry_count: slotAttempt,
+            duration_ms: latencyMs,
+            result: outcomeTag,
+            timestamp: new Date().toISOString(),
+          });
+
+          // Model not found (404) -> permanently disable model, break out to next model
           if (classification === 'MODEL_NOT_FOUND') {
             console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} result=404_model_not_found action=cascade_model error="${lastError.message}"`
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slotId} result=404_model_not_found action=disable_model error="${lastError.message}"`
             );
-            pool.releaseSlot(slot.id, { success: false, error: lastError });
-            modelUnsupportedAcrossAllProjects = true;
+            pool.releaseSlot(slotId, { success: false, error: lastError, is404ModelNotFound: true, model: modelName });
             slotFinished = true;
             break;
           }
 
-          // Daily quota exhausted (429 RPD): project enters cooldown, failover immediately to next project on same model
+          // Daily Quota (429 RPD) -> mark slot exhausted until Pacific midnight, failover to next project slot
           if (classification === 'DAILY_QUOTA_EXHAUSTED') {
             console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} result=daily_quota_exhausted action=failover_project error="${lastError.message}"`
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slotId} result=daily_quota_exhausted action=failover_project error="${lastError.message}"`
             );
-            pool.releaseSlot(slot.id, { success: false, error: lastError });
+            pool.releaseSlot(slotId, { success: false, error: lastError, model: modelName });
             slotFinished = true;
             break;
           }
 
-          // Authentication or Permission failure: permanent project error, failover to next project on same model
+          // Permanent Auth/Permission failure -> disable project slot permanently
           if (classification === 'AUTHENTICATION' || classification === 'PERMISSION') {
             console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} result=${classification} action=failover_project error="${lastError.message}"`
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slotId} result=${classification} action=disable_project error="${lastError.message}"`
             );
-            pool.releaseSlot(slot.id, { success: false, error: lastError });
+            pool.releaseSlot(slotId, { success: false, error: lastError, model: modelName });
             slotFinished = true;
             break;
           }
 
-          // Transient errors (503 / 429 RPM / Timeout): max 1 short retry before failing over
-          if (modelAttempt === 0) {
-            modelAttempt++;
+          // Transient conditions: 503 High Demand / Timeout / 429 RPM
+          // Bounded retry: max 1 retry with backoff in same slot
+          if (slotAttempt === 0) {
+            slotAttempt++;
             let delayMs = AI_CONFIG.retryPolicy.baseDelayMs;
             if (classification === 'SERVICE_UNAVAILABLE') {
               delayMs = AI_CONFIG.retryPolicy.shortRetryDelay503Ms;
             } else if (classification === 'RATE_LIMIT_TRANSIENT') {
               const retryAfter = extractRetryAfterMs(lastError);
               if (retryAfter !== null && retryAfter > AI_CONFIG.retryPolicy.maxRetryAfterMs) {
-                // Retry-After > 3s: failover to next credential immediately
-                pool.releaseSlot(slot.id, { success: false, error: lastError });
+                // Retry-After > 3s -> failover to next slot immediately
+                pool.releaseSlot(slotId, { success: false, error: lastError, model: modelName });
                 slotFinished = true;
                 break;
               }
               delayMs = retryAfter ?? AI_CONFIG.retryPolicy.baseDelayMs;
             }
             console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} result=transient_${classification} action=retry delay_ms=${delayMs}`
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slotId} result=transient_${classification} action=retry delay_ms=${delayMs}`
             );
             await sleepFn(delayMs);
             continue;
           } else {
-            // Retries exhausted for this project on this model: failover to next project
+            // Retried once and still failed -> release slot with cooldown, try next slot
             console.warn(
-              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slot.id} result=retry_exhausted action=failover_project error="${lastError.message}"`
+              `[MODERATION] confession_id=${confessionId} model=${modelName} project=${slotId} result=retry_exhausted action=failover_project error="${lastError.message}"`
             );
-            pool.releaseSlot(slot.id, { success: false, error: lastError });
+            pool.releaseSlot(slotId, { success: false, error: lastError, model: modelName });
             slotFinished = true;
             break;
           }
         }
       }
 
-      if (modelUnsupportedAcrossAllProjects) {
-        break; // cascade to next model in activeCascade
+      if (modelSuccess) {
+        break; // Successfully evaluated on this model!
       }
     }
+
+    // ── Evaluate Result & Semantic Escalation ──
+    if (modelSuccess && evaluatedResult) {
+      const conf = evaluatedResult.model_confidence ?? 1.0;
+      const isAmbiguous =
+        evaluatedResult.verdict === 'pending_review' &&
+        conf < AI_CONFIG.quota.ambiguityConfidenceThreshold;
+
+      if (!isAmbiguous) {
+        // Normal confident decision (approved, rejected, or confident pending_review like #38)
+        // SUCCESS! STOP IMMEDIATELY! Do NOT consume any other models.
+        return evaluatedResult;
+      }
+
+      // Ambiguous content detected! Only escalate if a higher model exists in the hierarchy
+      if (modelIndex < activeCascade.length - 1) {
+        const nextModel = activeCascade[modelIndex + 1];
+        console.log(
+          `[MODERATION] confession_id=${confessionId} Semantic ambiguity detected on ${modelName} (confidence=${conf}) -> Escalating to ${nextModel}`
+        );
+        continue; // Proceed to next model in hierarchy for ambiguity resolution
+      } else {
+        // At the top of the hierarchy, preserve the ambiguity verdict as final
+        return evaluatedResult;
+      }
+    }
+
+    // ── INFRASTRUCTURE FAILURE SEPARATION (Requirement #3 & #21) ──
+    // If the model failed due to infrastructure (503, 429, timeout, network failure),
+    // DO NOT cascade to secondary or tertiary models.
+    // Infrastructure conditions invoke quota scheduling / cooldowns, NOT semantic escalation.
+    // Preserve quota: Stop immediately and route safely to pending_review.
+    console.warn(
+      `[MODERATION] confession_id=${confessionId} Model ${modelName} infrastructure failure. Preserving quota: DO NOT cascade to higher models.`
+    );
+    break;
   }
 
-  // ── 6. All Models in Cascade Exhausted ──
-  // Fallback to pending_review — NEVER auto-reject solely due to AI provider failure
+  // ── 3. All Model / Slot Paths Exhausted ──
   console.error(
-    `[MODERATION] confession_id=${confessionId} all models in cascade exhausted. Routing confession to pending_review.`,
+    `[MODERATION] confession_id=${confessionId} All quota and models exhausted. Routing safely to pending_review.`,
     lastError
   );
+
+  const failureSummaries = new Map<string, string>();
+  for (const t of telemetry) {
+    if (t.result !== 'success') {
+      const desc = t.error_class || t.result;
+      failureSummaries.set(t.model, desc);
+    }
+  }
+  const infraReason = Array.from(failureSummaries.entries())
+    .map(([m, r]) => `${m.replace('gemini-', '')}: ${r}`)
+    .join(', ');
 
   return {
     verdict: 'pending_review',
     decision_reason: `AI moderation unavailable across all models: ${lastError?.message || 'Cascade exhausted'} (routed to human review).`,
-    model_confidence: 0,
+    model_confidence: null,
     matched_rules: ['SYS_MODERATION_UNAVAILABLE'],
-    policy_level: 5,
+    policy_level: null,
     flags: ['ai_cascade_exhausted', 'needs_manual_review'],
     model_id: 'cascade_failed',
     model_version: 'none',
@@ -465,5 +614,7 @@ export async function moderateConfession(
     generation_config: AI_CONFIG.generationConfig,
     fallback_used: true,
     deterministic_filter_used: false,
+    infrastructure_reason: infraReason || 'Cascade exhausted across all models and credentials',
+    telemetry,
   };
 }

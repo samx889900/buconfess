@@ -14,34 +14,55 @@ export type ModerationVerdict = z.infer<typeof ModerationVerdictEnum>;
 /**
  * Strict Zod schema for structured output from Gemini moderation.
  */
-export const ModerationOutputSchema = z.object({
-  verdict: ModerationVerdictEnum,
-  decision_reason: z
-    .string()
-    .min(1)
-    .max(300, 'Decision reason must be concise (max 300 chars)')
-    .describe('Concise factual reason for the decision without chain-of-thought'),
-  model_confidence: z
-    .number()
-    .min(0)
-    .max(1)
-    .describe('Model-reported confidence score (metadata only, not calibrated probability)'),
-  matched_rules: z
-    .array(z.string().min(1).max(50))
-    .min(1, 'Must include at least one matched rule code (or NONE)')
-    .describe('Policy rule codes matched (e.g. L1_THREAT, L2_PII_PHONE, NONE)'),
-  policy_level: z
-    .number()
-    .int()
-    .min(1)
-    .max(5)
-    .describe('Highest policy hierarchy level evaluated (1=Hard Safety to 5=Campus Life)'),
-  flags: z
-    .array(z.string().min(1).max(50))
-    .describe('Content categorization tags e.g. ["pii", "crush", "rant", "profanity"]'),
-});
+export const ModerationOutputSchema = z
+  .object({
+    verdict: ModerationVerdictEnum,
+    decision_reason: z.string().max(300).optional(),
+    reason: z.string().max(300).optional(),
+    model_confidence: z.number().min(0).max(1).nullable().optional(),
+    confidence: z.number().min(0).max(1).nullable().optional(),
+    matched_rules: z.array(z.string().min(1).max(50)).optional(),
+    policy_level: z.number().int().min(1).max(5).nullable().optional(),
+    policyLevel: z.number().int().min(1).max(5).nullable().optional(),
+    flags: z.array(z.string().min(1).max(50)).optional(),
+  })
+  .transform((data) => ({
+    verdict: data.verdict,
+    decision_reason: (data.decision_reason || data.reason || 'Evaluated by moderation policy').slice(0, 300),
+    model_confidence: data.model_confidence ?? data.confidence ?? null,
+    matched_rules: data.matched_rules && data.matched_rules.length > 0
+      ? data.matched_rules
+      : (data.verdict === 'approved' ? ['NONE'] : ['POLICY_VIOLATION']),
+    policy_level: (data.policy_level ?? data.policyLevel ?? (data.verdict === 'approved' ? 5 : 2)) as number | null,
+    flags: data.flags || [],
+  }));
 
 export type ModerationOutput = z.infer<typeof ModerationOutputSchema>;
+
+/**
+ * Sanitized telemetry entry for a single model x credential attempt.
+ * NEVER includes secrets, API keys, or raw headers.
+ */
+export interface ModerationTelemetryEntry {
+  model: string;
+  credential_slot: string;
+  attempt_number: number;
+  error_class?: string;
+  http_status?: number;
+  retry_count: number;
+  duration_ms: number;
+  result:
+    | 'success'
+    | 'failed'
+    | 'rate_limited'
+    | 'service_unavailable'
+    | 'not_found'
+    | 'auth_error'
+    | 'permission_error'
+    | 'timeout'
+    | 'invalid_schema';
+  timestamp: string;
+}
 
 /**
  * Full moderation result including audit & execution metadata.
@@ -55,6 +76,8 @@ export interface ModerationResult extends ModerationOutput {
   generation_config: Record<string, unknown>;
   fallback_used: boolean;
   deterministic_filter_used: boolean;
+  infrastructure_reason?: string;
+  telemetry?: ModerationTelemetryEntry[];
 }
 
 /**

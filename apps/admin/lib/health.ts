@@ -147,8 +147,24 @@ export async function getAdminHealthStatus(
   }
 
   // 2. Moderation Pipeline Availability
-  const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 0);
-  const modStatus: SubsystemStatus = hasGeminiKey ? 'ok' : 'not_configured';
+  geminiCredentialPool.refreshFromEnv();
+  const poolSlots = geminiCredentialPool.getSlots();
+  const availableSlots = geminiCredentialPool.getAvailableSlots();
+  const hasGeminiKey = poolSlots.length > 0;
+  let modStatus: SubsystemStatus = 'not_configured';
+  let modDetails: string | undefined;
+
+  if (hasGeminiKey) {
+    if (availableSlots.length > 0) {
+      modStatus = 'ok';
+      modDetails = `${availableSlots.length}/${poolSlots.length} project slot(s) healthy`;
+    } else {
+      modStatus = 'degraded';
+      modDetails = `All ${poolSlots.length} project slot(s) in cooldown or unavailable`;
+    }
+  } else {
+    modDetails = 'Zero Gemini API keys configured';
+  }
 
   // 3. Image Generation Engine
   let imageStatus: SubsystemStatus = 'ok';
@@ -371,7 +387,7 @@ export async function getAdminHealthStatus(
         status: modStatus,
         provider: 'Gemini (Deterministic Pre-Filter + Model Cascade)',
         hasApiKey: hasGeminiKey,
-        details: hasGeminiKey ? 'API Key configured' : 'Missing GEMINI_API_KEY environment variable',
+        details: modDetails,
       },
       image_generation: {
         status: imageStatus,

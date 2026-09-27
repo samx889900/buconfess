@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from './supabase';
+import { ALLOWED_GEMINI_MODELS } from './ai/config';
 
 // ---------------------------------------------------------------------------
 // Typed Allowlist Settings (BU Confessions v3.4)
@@ -108,14 +109,14 @@ export const SETTINGS_ALLOWLIST: Record<string, SettingDefinition> = {
   moderation_model_cascade: {
     key: 'moderation_model_cascade',
     type: 'string',
-    defaultValue: 'gemini-3.8-flash,gemini-3.7-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite',
+    defaultValue: 'gemini-3.5-flash,gemini-3.7-flash,gemini-3.8-flash',
     description: 'Comma-separated Gemini model cascade order (must only contain allowlisted models)',
   },
   daily_posting_times: {
     key: 'daily_posting_times',
     type: 'string',
-    defaultValue: '00:00,06:00,12:00,18:00',
-    description: 'Comma-separated daily posting times in HH:MM 24-hr format (e.g. 00:00,06:00,12:00,18:00)',
+    defaultValue: '06:00,12:00,16:00,22:00',
+    description: 'Comma-separated daily posting times in HH:MM 24-hr format (e.g. 06:00,12:00,16:00,22:00)',
   },
   daily_posting_time: {
     key: 'daily_posting_time',
@@ -224,7 +225,7 @@ export function validateSettingValue(def: SettingDefinition, rawValue: unknown):
 
     // Specific validation for moderation_model_cascade
     if (def.key === 'moderation_model_cascade') {
-      const allowed = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+      const allowed = Array.from(ALLOWED_GEMINI_MODELS) as string[];
       const models = rawValue.split(',').map((m) => m.trim()).filter(Boolean);
       if (models.length === 0) {
         throw new Error(`Setting 'moderation_model_cascade' must specify at least one valid Gemini model.`);
