@@ -327,6 +327,26 @@ describe('Phase 13.B: Multi-Slot Scheduling (Every 6 Hours)', () => {
     assert.equal(check.scheduleSlot, '06:00');
   });
 
+  it('9.B. Widened window tolerance: Runner delayed by 90 minutes claims slot with widened window (180m)', () => {
+    // 13:30 IST (90m delayed for 12:00 slot) -> UTC 08:00:00
+    const delayed1200 = new Date('2026-09-27T08:00:00.000Z');
+    const check = evaluatePostingWindow(delayed1200, scheduleTimes, tz, 15, 180);
+    assert.equal(check.isWithinWindow, true);
+    assert.equal(check.diffMinutes, 90);
+    assert.equal(check.scheduleSlot, '12:00');
+    assert.equal(check.postingDate, '2026-09-27');
+  });
+
+  it('9.C. Widened window tolerance: Runner delayed by 120 minutes after midnight claims 00:00 slot correctly', () => {
+    // 02:00 IST on 2026-09-27 (120m delayed for 00:00 slot) -> UTC 2026-09-26T20:30:00.000Z
+    const delayed0000 = new Date('2026-09-26T20:30:00.000Z');
+    const check = evaluatePostingWindow(delayed0000, scheduleTimes, tz, 15, 180);
+    assert.equal(check.isWithinWindow, true);
+    assert.equal(check.diffMinutes, 120);
+    assert.equal(check.scheduleSlot, '00:00');
+    assert.equal(check.postingDate, '2026-09-27');
+  });
+
   // Test 10: Outside window handling & manual bypass security
   it('10.A. Outside window handling: Scheduled invocation outside window exits with outside_schedule_window', async () => {
     const mockDb = createMockSupabase();

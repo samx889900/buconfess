@@ -168,6 +168,22 @@ export const SETTINGS_ALLOWLIST: Record<string, SettingDefinition> = {
     max: 10,
     description: 'Maximum retries for failed secondary Google Sheets sync operations (range: 1–10)',
   },
+  schedule_window_minutes_before: {
+    key: 'schedule_window_minutes_before',
+    type: 'number',
+    defaultValue: 15,
+    min: 0,
+    max: 120,
+    description: 'Allowed minutes before slot time for posting window (default: 15)',
+  },
+  schedule_window_minutes_after: {
+    key: 'schedule_window_minutes_after',
+    type: 'number',
+    defaultValue: 180,
+    min: 15,
+    max: 480,
+    description: 'Allowed minutes after slot time for posting window to accommodate GitHub runner queue delays (default: 180)',
+  },
 };
 
 export interface SettingItem<T = unknown> {
@@ -453,6 +469,8 @@ export interface RuntimeSettings {
   image_line_height: number;
   sheets_sync_enabled: boolean;
   sheets_sync_max_retries: number;
+  schedule_window_minutes_before: number;
+  schedule_window_minutes_after: number;
 }
 
 let _cachedRuntimeSettings: RuntimeSettings | null = null;
@@ -503,6 +521,8 @@ export async function getRuntimeSettings(
     image_line_height: SETTINGS_ALLOWLIST.image_line_height.defaultValue as number,
     sheets_sync_enabled: SETTINGS_ALLOWLIST.sheets_sync_enabled.defaultValue as boolean,
     sheets_sync_max_retries: SETTINGS_ALLOWLIST.sheets_sync_max_retries.defaultValue as number,
+    schedule_window_minutes_before: SETTINGS_ALLOWLIST.schedule_window_minutes_before.defaultValue as number,
+    schedule_window_minutes_after: SETTINGS_ALLOWLIST.schedule_window_minutes_after.defaultValue as number,
   };
 
   try {

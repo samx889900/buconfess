@@ -299,7 +299,9 @@ export async function getAdminHealthStatus(
     const windowCheck = evaluatePostingWindow(
       new Date(),
       settings.daily_posting_times,
-      settings.posting_timezone
+      settings.posting_timezone,
+      settings.schedule_window_minutes_before ?? 15,
+      settings.schedule_window_minutes_after ?? 180
     );
 
     // Calculate today's posted count (calendar day resets 00:00 IST)

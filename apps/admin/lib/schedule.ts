@@ -102,11 +102,8 @@ export function evaluatePostingWindow(
   const currentLocalTime = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
   const currentTotalMinutes = currentHour * 60 + currentMinute;
 
-  // Check each slot — return the first one within window
-  let closestSlot = slots[0];
-  let closestDiff = Infinity;
-
-  for (const slot of slots) {
+  // Evaluate slots ordered by closest proximity to current time
+  const candidateSlots = slots.map((slot) => {
     const [targetHStr, targetMStr] = slot.split(':');
     const targetH = parseInt(targetHStr, 10);
     const targetM = parseInt(targetMStr, 10);
@@ -117,15 +114,23 @@ export function evaluatePostingWindow(
     if (diffMinutes < -720) diffMinutes += 1440;
     if (diffMinutes > 720) diffMinutes -= 1440;
 
-    if (Math.abs(diffMinutes) < Math.abs(closestDiff)) {
-      closestDiff = diffMinutes;
-      closestSlot = slot;
-    }
+    return {
+      slot,
+      diffMinutes,
+      absDiff: Math.abs(diffMinutes),
+    };
+  });
 
-    const isWithinWindow = diffMinutes >= -windowMinutesBefore && diffMinutes <= windowMinutesAfter;
+  candidateSlots.sort((a, b) => a.absDiff - b.absDiff);
+  const closest = candidateSlots[0];
+
+  for (const candidate of candidateSlots) {
+    const isWithinWindow =
+      candidate.diffMinutes >= -windowMinutesBefore && candidate.diffMinutes <= windowMinutesAfter;
+
     if (isWithinWindow) {
       // Normalize target date for midnight rollover (e.g. 23:55 for 00:00 slot attributes to upcoming calendar day)
-      const targetDateObj = new Date(now.getTime() - diffMinutes * 60 * 1000);
+      const targetDateObj = new Date(now.getTime() - candidate.diffMinutes * 60 * 1000);
       const targetParts = formatter.formatToParts(targetDateObj);
       const targetPartMap: Record<string, string> = {};
       for (const p of targetParts) {
@@ -137,9 +142,9 @@ export function evaluatePostingWindow(
         isWithinWindow: true,
         postingDate: normalizedPostingDate,
         currentLocalTime,
-        targetTime: slot,
-        scheduleSlot: slot,
-        diffMinutes,
+        targetTime: candidate.slot,
+        scheduleSlot: candidate.slot,
+        diffMinutes: candidate.diffMinutes,
       };
     }
   }
@@ -149,10 +154,10 @@ export function evaluatePostingWindow(
     isWithinWindow: false,
     postingDate,
     currentLocalTime,
-    targetTime: closestSlot,
-    scheduleSlot: closestSlot,
-    diffMinutes: closestDiff,
-    reason: `Current local time (${currentLocalTime} ${timezone}) is outside the posting window for all configured slots [${slots.join(', ')}] (closest: ${closestSlot}, ${closestDiff > 0 ? `+${closestDiff}` : closestDiff}m).`,
+    targetTime: closest.slot,
+    scheduleSlot: closest.slot,
+    diffMinutes: closest.diffMinutes,
+    reason: `Current local time (${currentLocalTime} ${timezone}) is outside the posting window for all configured slots [${slots.join(', ')}] (closest: ${closest.slot}, ${closest.diffMinutes > 0 ? `+${closest.diffMinutes}` : closest.diffMinutes}m).`,
   };
 }
 

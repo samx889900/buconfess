@@ -270,7 +270,9 @@ export async function runAgent(options: RunAgentOptions = {}): Promise<RunAgentR
     const windowCheck = evaluatePostingWindow(
       new Date(),
       settings.daily_posting_times,
-      settings.posting_timezone
+      settings.posting_timezone,
+      settings.schedule_window_minutes_before ?? 15,
+      settings.schedule_window_minutes_after ?? 180
     );
 
     // If scheduled invocation is outside all valid posting windows, exit cleanly:
