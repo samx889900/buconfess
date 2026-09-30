@@ -319,8 +319,8 @@ export async function moderateConfession(
     const isPrimary = modelIndex === 0;
 
     // Quota-aware project slot selection:
-    // Try up to 2 distinct healthy project slots for this model (bounded failover)
-    const MAX_PROJECT_FAILOVERS_PER_MODEL = 2;
+    // Try across all healthy project slots in the pool (bounded failover)
+    const MAX_PROJECT_FAILOVERS_PER_MODEL = Math.max(5, pool.getSlots().length);
     let projectAttemptCount = 0;
     let modelSuccess = false;
     let evaluatedResult: ModerationResult | null = null;
@@ -571,13 +571,19 @@ export async function moderateConfession(
       }
     }
 
-    // ── INFRASTRUCTURE FAILURE SEPARATION (Requirement #3 & #21) ──
-    // If the model failed due to infrastructure (503, 429, timeout, network failure),
-    // DO NOT cascade to secondary or tertiary models.
-    // Infrastructure conditions invoke quota scheduling / cooldowns, NOT semantic escalation.
-    // Preserve quota: Stop immediately and route safely to pending_review.
+    // ── INFRASTRUCTURE FAILURE SEPARATION & FAILOVER ──
+    // If the model failed across all available project slots, cascade to the next
+    // model in the active cascade hierarchy (e.g. 3.5 -> 3.7 -> 3.8).
+    if (modelIndex < activeCascade.length - 1) {
+      const nextModel = activeCascade[modelIndex + 1];
+      console.warn(
+        `[MODERATION] confession_id=${confessionId} Model ${modelName} failed across all project slots -> Cascading to fallback model ${nextModel}...`
+      );
+      continue;
+    }
+
     console.warn(
-      `[MODERATION] confession_id=${confessionId} Model ${modelName} infrastructure failure. Preserving quota: DO NOT cascade to higher models.`
+      `[MODERATION] confession_id=${confessionId} Model ${modelName} failed and no further models exist in cascade.`
     );
     break;
   }

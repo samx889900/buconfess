@@ -73,7 +73,7 @@ export const AI_CONFIG = {
 
   // Bounded Retry & Backoff Configuration
   retryPolicy: {
-    timeoutMs: 15000,              // 15s timeout per attempt (allows cold-start TLS & generation)
+    timeoutMs: 45000,              // 45s timeout per attempt (allows cold-start TLS & generation)
     maxRetriesForTimeout: 1,       // timeout -> max 1 retry -> failover project
     maxRetriesFor503: 1,           // 503 -> max 1 short retry -> mark project cooldown
     shortRetryDelay503Ms: 500,     // 500ms short backoff on 503
